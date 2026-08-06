@@ -1,0 +1,3 @@
+- [x] Cập nhật phiên bản Gradle trong `gradle-wrapper.properties`
+- [x] Cập nhật phiên bản AGP và Kotlin trong `settings.gradle.kts`
+- [/] Xác minh thay đổi bằng cách chạy `flutter build apk` (hoặc kiểm tra log)
