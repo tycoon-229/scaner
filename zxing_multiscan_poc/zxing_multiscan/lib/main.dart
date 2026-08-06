@@ -6,6 +6,7 @@ import 'widgets/debug_info_widget.dart';
 import 'widgets/scan_result_widget.dart';
 import 'widgets/multiscan_result_widget.dart';
 import 'widgets/unsupported_platform_widget.dart';
+import 'extensions/code_format_extensions.dart';
 
 void main() {
   zx.setLogEnabled(kDebugMode);
@@ -117,7 +118,7 @@ class _DemoPageState extends State<DemoPage> {
                     actionSecondButtonIcon: const Icon(Icons.info_outline),
                     tryDownscale: true,
                     maxNumberOfSymbols: 5,
-                    scanDelay: Duration(milliseconds: isMultiScan ? 50 : 30),
+                    scanDelay: Duration(milliseconds: isMultiScan ? 50 : 500),
                     resolution: ResolutionPreset.high,
                     lensDirection: CameraLensDirection.back,
                     flashOnIcon: const Icon(Icons.flash_on),
@@ -206,7 +207,7 @@ class _DemoPageState extends State<DemoPage> {
   Future<void> _processMsiScanFallback(Code? code) async {
     final now = DateTime.now();
 
-    if (now.difference(_lastMsiFallbackAttempt).inMilliseconds < 10) return;
+    if (now.difference(_lastMsiFallbackAttempt).inMilliseconds < 150) return;
 
     if (code?.imageBytes != null && code!.imageBytes!.isNotEmpty) {
       if (_isProcessingMsiFallback) return;
@@ -236,18 +237,11 @@ class _DemoPageState extends State<DemoPage> {
             successScans++;
             result = Code(
               text: msiCode,
+              format: FormatMsi.msiPlessey,
               isValid: true,
               duration: now.difference(_lastMsiFallbackAttempt).inMilliseconds,
             );
           });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Decode success barcode MSI: $msiCode'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
         }
       }
       _isProcessingMsiFallback = false;

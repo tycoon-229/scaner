@@ -181,6 +181,7 @@ object MsiNativeDecoder {
 
     private fun parseRuns(runs: List<Pair<Boolean, Int>>, scheme: ChecksumScheme): String? {
         val totalRuns = runs.size
+        if (totalRuns < 10) return null
 
         for (startIdx in 0 until totalRuns - 8) {
             if (!runs[startIdx].first) continue
@@ -191,14 +192,15 @@ object MsiNativeDecoder {
 
             if (startTotal <= 0) continue
 
-            if (startBar / startTotal < 0.45f) continue
+            val startRatio = startBar / startTotal
+            if (startRatio < 0.50f || startRatio > 0.85f) continue
 
             var estX = startTotal / 3.0f
             if (estX <= 0) continue
 
             if (startIdx > 0) {
                 val quietBefore = runs[startIdx - 1]
-                if (!quietBefore.first && quietBefore.second < estX * 1.5f) {
+                if (!quietBefore.first && quietBefore.second < estX * 3.0f) {
                     continue
                 }
             }
@@ -220,22 +222,26 @@ object MsiNativeDecoder {
 
                 if (totalW <= 0) break
 
-                if (spaceW > estX * 4.5f) {
-                    val ratio = barW / totalW
-                    val bit = if (ratio >= 0.50f) 1 else 0
-                    rawBits.add(bit)
-                    idx += 2
-                    break
+                val ratio = barW / totalW
+
+                if (ratio >= 0.15f && ratio <= 0.48f && idx + 2 < totalRuns) {
+                    val stopBar2 = runs[idx + 2]
+                    if (stopBar2.first && stopBar2.second >= estX * 0.4f && stopBar2.second <= estX * 3.0f) {
+                        val quietAfter = if (idx + 3 < totalRuns && !runs[idx + 3].first) runs[idx + 3].second else Int.MAX_VALUE
+                        if (quietAfter >= estX * 3.0f) {
+                            rawBits.add(0)
+                            break
+                        }
+                    }
                 }
 
                 if (totalW < estX * 1.2f || totalW > estX * 5.0f) break
 
-                val ratio = barW / totalW
                 val bit = if (ratio >= 0.50f) 1 else 0
                 rawBits.add(bit)
 
                 val currentX = totalW / 3.0f
-                estX = (estX * 0.8f) + (currentX * 0.2f)
+                estX = (estX * 0.85f) + (currentX * 0.15f)
 
                 idx += 2
             }

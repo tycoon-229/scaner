@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
+import '../extensions/code_format_extensions.dart';
 
 class ScanResultWidget extends StatelessWidget {
   const ScanResultWidget({super.key, this.result, this.onScanAgain});
@@ -16,7 +17,7 @@ class ScanResultWidget extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              result?.format?.name ?? '',
+              result?.formatName ?? '',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 20),
