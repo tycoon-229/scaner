@@ -1,0 +1,13 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/src",
+    "files.associations": {
+        "__config": "cpp",
+        "__nullptr": "cpp",
+        "codecvt": "cpp",
+        "cmath": "cpp",
+        "array": "cpp",
+        "new": "cpp",
+        "ios": "cpp",
+        "vector": "cpp"
+    }
+}
