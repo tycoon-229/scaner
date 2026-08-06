@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
-
+import 'package:flutter_zxing_example/services/msi_scanner_service.dart';
 import 'widgets/debug_info_widget.dart';
 import 'widgets/scan_result_widget.dart';
 import 'widgets/multiscan_result_widget.dart';
@@ -51,6 +51,11 @@ class _DemoPageState extends State<DemoPage> {
   bool showDebugInfo = true;
   int successScans = 0;
   int failedScans = 0;
+
+  bool _isProcessingMsiFallback = false;
+  DateTime _lastMsiFallbackAttempt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastMsiCandidate;
+  int _msiCandidateMatchCount = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +117,7 @@ class _DemoPageState extends State<DemoPage> {
                     actionSecondButtonIcon: const Icon(Icons.info_outline),
                     tryDownscale: true,
                     maxNumberOfSymbols: 5,
-                    scanDelay: Duration(milliseconds: isMultiScan ? 50 : 500),
+                    scanDelay: Duration(milliseconds: isMultiScan ? 50 : 30),
                     resolution: ResolutionPreset.high,
                     lensDirection: CameraLensDirection.back,
                     flashOnIcon: const Icon(Icons.flash_on),
@@ -190,13 +195,62 @@ class _DemoPageState extends State<DemoPage> {
     });
   }
 
-  void _onScanFailure(Code? code) {
+  void _onScanFailure(Code? code) async {
     setState(() {
       failedScans++;
-      result = code;
     });
-    if (code?.error?.isNotEmpty == true) {
-      _showMessage(context, 'Error: ${code?.error}');
+
+    _processMsiScanFallback(code);
+  }
+
+  Future<void> _processMsiScanFallback(Code? code) async {
+    final now = DateTime.now();
+
+    if (now.difference(_lastMsiFallbackAttempt).inMilliseconds < 10) return;
+
+    if (code?.imageBytes != null && code!.imageBytes!.isNotEmpty) {
+      if (_isProcessingMsiFallback) return;
+
+      _lastMsiFallbackAttempt = now;
+      _isProcessingMsiFallback = true;
+
+      final String? msiCode = await MsiScannerService.decodeMsiYuv(
+        code.imageBytes!,
+        imageWidth: code.imageWidth ?? 0,
+        imageHeight: code.imageHeight ?? 0,
+      );
+
+      if (mounted && msiCode != null && msiCode.isNotEmpty) {
+        if (msiCode == _lastMsiCandidate) {
+          _msiCandidateMatchCount++;
+        } else {
+          _lastMsiCandidate = msiCode;
+          _msiCandidateMatchCount = 1;
+        }
+
+        if (_msiCandidateMatchCount >= 2) {
+          _lastMsiCandidate = null;
+          _msiCandidateMatchCount = 0;
+
+          setState(() {
+            successScans++;
+            result = Code(
+              text: msiCode,
+              isValid: true,
+              duration: now.difference(_lastMsiFallbackAttempt).inMilliseconds,
+            );
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Decode success barcode MSI: $msiCode'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+      _isProcessingMsiFallback = false;
     }
   }
 
