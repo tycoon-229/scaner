@@ -327,6 +327,7 @@ class _DemoPageState extends State<DemoPage> {
       scanningMode: scanningMode,
       isBeepEnabled: true,
       isVibrateEnabled: true,
+      maxConsecutiveStableFramesToExit: 5,
     );
 
     BarcodeScanResult barcodeScanResult = await BarcodeScanner.launch(config);
