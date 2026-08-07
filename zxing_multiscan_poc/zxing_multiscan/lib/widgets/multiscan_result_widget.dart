@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
+import 'package:flutter_zxing_example/extensions/code_format_extensions.dart';
 
 class MultiScanResultWidget extends StatelessWidget {
   const MultiScanResultWidget({
@@ -40,9 +41,7 @@ class MultiScanResultWidget extends StatelessWidget {
                       child: ListTile(
                         leading: const Icon(Icons.qr_code),
                         title: Text(code.text ?? 'No text'),
-                        subtitle: Text(code.text != null
-                            ? 'Scanned successfully'
-                            : 'Unknown format'),
+                        subtitle: Text(code.formatName ?? 'Unknown format'),
                       ),
                     );
                   },
