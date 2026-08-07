@@ -63,9 +63,6 @@ class _DemoPageState extends State<DemoPage> {
   String? dymError;
   bool isDymMultiScan = false;
   bool showDymMultiResult = false;
-  bool showDymDebugInfo = true;
-  int dymSuccessScans = 0;
-  int dymFailedScans = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -191,7 +188,10 @@ class _DemoPageState extends State<DemoPage> {
         dymMultiResult!.codes.isNotEmpty) {
       return MultiScanResultWidget(
         multiResult: dymMultiResult,
-        onScanAgain: () => setState(() => showDymMultiResult = false),
+        onScanAgain: () => setState(() {
+          dymMultiResult = null;
+          showDymMultiResult = false;
+        }),
       );
     } else {
       return Container(
@@ -314,34 +314,6 @@ class _DemoPageState extends State<DemoPage> {
                 ),
               ),
             ),
-            if (showDymDebugInfo)
-              DebugInfoWidget(
-                successScans: dymSuccessScans,
-                failedScans: dymFailedScans,
-                error: dymError,
-                duration: isDymMultiScan
-                    ? dymMultiResult?.duration ?? 0
-                    : dymResult?.duration ?? 0,
-                onReset: _onDymReset,
-                onViewResults: dymMultiResult != null && dymMultiResult!.codes.isNotEmpty
-                    ? () => setState(() {
-                          isDymMultiScan = true;
-                          showDymMultiResult = true;
-                        })
-                    : null,
-              ),
-            Positioned(
-              bottom: 20,
-              right: 20,
-              child: IconButton(
-                icon: const Icon(Icons.info_outline, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    showDymDebugInfo = !showDymDebugInfo;
-                  });
-                },
-              ),
-            ),
           ],
         ),
       );
@@ -365,7 +337,6 @@ class _DemoPageState extends State<DemoPage> {
       if (barcodeScanResult.status == EnumResultStatus.canceled) {
         // Canceled scan, do not record failure
       } else if (barcodeScanResult.status == EnumResultStatus.exception) {
-        dymFailedScans++;
         dymError =
             "ErrorCode: ${barcodeScanResult.errorCode}\nErrorString: ${barcodeScanResult.errorMessage}";
         if (scanningMode == EnumScanningMode.single) {
@@ -385,10 +356,7 @@ class _DemoPageState extends State<DemoPage> {
         if (scanningMode == EnumScanningMode.single) {
           final code = barcodeScanResult.toSingleCode(duration: elapsedMs);
           if (code != null && code.isValid) {
-            dymSuccessScans++;
             dymResult = code;
-          } else {
-            dymFailedScans++;
           }
         } else {
           final codes = barcodeScanResult.toCodes(duration: elapsedMs);
@@ -398,27 +366,13 @@ class _DemoPageState extends State<DemoPage> {
               if (c.isValid &&
                   !dymMultiResult!.codes.any((exist) => exist.text == c.text)) {
                 dymMultiResult!.codes.add(c);
-                dymSuccessScans++;
               }
             }
             dymMultiResult!.duration = elapsedMs;
             showDymMultiResult = true;
-          } else {
-            dymFailedScans++;
           }
         }
       }
-    });
-  }
-
-  void _onDymReset() {
-    setState(() {
-      dymSuccessScans = 0;
-      dymFailedScans = 0;
-      dymResult = null;
-      dymMultiResult = null;
-      dymError = null;
-      showDymMultiResult = false;
     });
   }
 
