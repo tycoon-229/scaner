@@ -323,7 +323,7 @@ class _DemoPageState extends State<DemoPage> {
   void _launchBarcodeScanner(EnumScanningMode scanningMode) async {
     final startTime = DateTime.now();
     var config = BarcodeScannerConfig(
-      license: "DLS2eyJvcmdhbml6YXRpb25JRCI6IjIwMDAwMSJ9",
+      license: "t0089pwAAAFIxakesHjAxT8hGaKw6pkzm2k2X+jTkZyf/4h1k/akqyMYyEuPPcb4kepghNZNBYM5zoJg7Ey90q3dkwJwYZ442+Fan8gPGs1Pnxl9u9BZrJ2W7InQ=",
       scanningMode: scanningMode,
       isBeepEnabled: true,
       isVibrateEnabled: true,
