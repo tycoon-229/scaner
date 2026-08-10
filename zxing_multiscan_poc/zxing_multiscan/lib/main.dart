@@ -7,12 +7,17 @@ import 'widgets/debug_info_widget.dart';
 import 'widgets/scan_result_widget.dart';
 import 'widgets/multiscan_result_widget.dart';
 import 'widgets/unsupported_platform_widget.dart';
+import 'widgets/scandit_tab_widget.dart';
 import 'extensions/code_format_extensions.dart';
 import 'extensions/dynamsoft_mapper_extensions.dart';
 
-void main() {
+import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   zx.setLogEnabled(kDebugMode);
   debugPrint('ZXing version: ${zx.version()}');
+  await ScanditFlutterDataCaptureBarcode.initialize();
   runApp(const MyApp());
 }
 
@@ -71,13 +76,14 @@ class _DemoPageState extends State<DemoPage> {
         defaultTargetPlatform == TargetPlatform.android;
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const TabBar(
             tabs: [
               Tab(text: 'ZXing'),
               Tab(text: 'Dynamsoft'),
+              Tab(text: 'Scandit'),
             ],
           ),
         ),
@@ -88,6 +94,8 @@ class _DemoPageState extends State<DemoPage> {
             _buildZXingTab(isCameraSupported),
             // Tab 2: Dynamsoft
             _buildDynamsoftTab(isCameraSupported),
+            // Tab 3: Scandit
+            _buildScanditTab(isCameraSupported),
           ],
         ),
       ),
@@ -320,14 +328,23 @@ class _DemoPageState extends State<DemoPage> {
     }
   }
 
+  Widget _buildScanditTab(bool isCameraSupported) {
+    if (kIsWeb) {
+      return const UnsupportedPlatformWidget();
+    } else if (!isCameraSupported) {
+      return const Center(child: Text('Camera not supported on this platform'));
+    } else {
+      return const ScanditTabWidget();
+    }
+  }
+
   void _launchBarcodeScanner(EnumScanningMode scanningMode) async {
     final startTime = DateTime.now();
     var config = BarcodeScannerConfig(
       license: "t0089pwAAAFIxakesHjAxT8hGaKw6pkzm2k2X+jTkZyf/4h1k/akqyMYyEuPPcb4kepghNZNBYM5zoJg7Ey90q3dkwJwYZ442+Fan8gPGs1Pnxl9u9BZrJ2W7InQ=",
       scanningMode: scanningMode,
-      isBeepEnabled: true,
       isVibrateEnabled: true,
-      maxConsecutiveStableFramesToExit: 5,
+      maxConsecutiveStableFramesToExit: 3,
     );
 
     BarcodeScanResult barcodeScanResult = await BarcodeScanner.launch(config);
