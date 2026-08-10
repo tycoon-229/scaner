@@ -95,6 +95,7 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
         Symbology.interleavedTwoOfFive,
         Symbology.codabar,
         Symbology.msiPlessey,
+        Symbology.upce,
       ];
       for (final symbology in activeSymbologies) {
         settings.enableSymbology(symbology, true);
