@@ -1,0 +1,228 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_zxing/flutter_zxing.dart';
+
+import '../extensions/code_format_extensions.dart';
+import '../services/msi_scanner_service.dart';
+import 'debug_info_widget.dart';
+import 'multiscan_result_widget.dart';
+import 'scan_result_widget.dart';
+import 'unsupported_platform_widget.dart';
+
+class ZxingTabWidget extends StatefulWidget {
+  const ZxingTabWidget({super.key, required this.isCameraSupported});
+
+  final bool isCameraSupported;
+
+  @override
+  State<ZxingTabWidget> createState() => _ZxingTabWidgetState();
+}
+
+class _ZxingTabWidgetState extends State<ZxingTabWidget> {
+  Uint8List? createdCodeBytes;
+  Code? result;
+  Codes? multiResult;
+  bool isMultiScan = false;
+  bool showMultiResult = false;
+  bool showDebugInfo = true;
+  int successScans = 0;
+  int failedScans = 0;
+
+  bool _isProcessingMsiFallback = false;
+  DateTime _lastMsiFallbackAttempt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastMsiCandidate;
+  int _msiCandidateMatchCount = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return const UnsupportedPlatformWidget();
+    } else if (!widget.isCameraSupported) {
+      return const Center(child: Text('Camera not supported on this platform'));
+    } else if (!isMultiScan && result != null && result?.isValid == true) {
+      return ScanResultWidget(
+        result: result,
+        onScanAgain: () => setState(() => result = null),
+      );
+    } else if (isMultiScan &&
+        showMultiResult &&
+        multiResult != null &&
+        multiResult!.codes.isNotEmpty) {
+      return MultiScanResultWidget(
+        multiResult: multiResult,
+        onScanAgain: () => setState(() => showMultiResult = false),
+      );
+    } else {
+      return Stack(
+        children: [
+          ReaderWidget(
+            onScan: _onScanSuccess,
+            onScanFailure: _onScanFailure,
+            onMultiScan: _onMultiScanSuccess,
+            onMultiScanFailure: _onMultiScanFailure,
+            onMultiScanModeChanged: _onMultiScanModeChanged,
+            onControllerCreated: _onControllerCreated,
+            isMultiScan: isMultiScan,
+            cropPercent: 0.5,
+            verticalCropOffset: 0,
+            horizontalCropOffset: 0,
+            tryInverted: true,
+            onActionSecondButton: () {
+              setState(() {
+                showDebugInfo = !showDebugInfo;
+              });
+            },
+            actionSecondButtonIcon: const Icon(Icons.info_outline),
+            tryDownscale: true,
+            maxNumberOfSymbols: 5,
+            scanDelay: Duration(milliseconds: isMultiScan ? 50 : 500),
+            resolution: ResolutionPreset.high,
+            lensDirection: CameraLensDirection.back,
+            flashOnIcon: const Icon(Icons.flash_on),
+            flashOffIcon: const Icon(Icons.flash_off),
+            flashAlwaysIcon: const Icon(Icons.flash_on),
+            flashAutoIcon: const Icon(Icons.flash_auto),
+            galleryIcon: const Icon(Icons.photo_library),
+            toggleCameraIcon: const Icon(Icons.switch_camera),
+            actionButtonsBackgroundBorderRadius: BorderRadius.circular(10),
+            actionButtonsBackgroundColor: Colors.black.withValues(alpha: 0.5),
+          ),
+          if (showDebugInfo)
+            DebugInfoWidget(
+              successScans: successScans,
+              failedScans: failedScans,
+              error: isMultiScan ? multiResult?.error : result?.error,
+              duration: isMultiScan
+                  ? multiResult?.duration ?? 0
+                  : result?.duration ?? 0,
+              onReset: _onReset,
+              onViewResults: isMultiScan
+                  ? () => setState(() => showMultiResult = true)
+                  : null,
+              imageBytes: !isMultiScan && result?.imageBytes != null
+                  ? pngFromBytes(
+                      result?.imageBytes ?? Uint8List(0),
+                      result?.imageWidth ?? 0,
+                      result?.imageHeight ?? 0,
+                    )
+                  : null,
+            ),
+        ],
+      );
+    }
+  }
+
+  void _onControllerCreated(CameraController? controller, Exception? error) {
+    if (error != null) {
+      _showMessage(context, 'Error: $error');
+    }
+  }
+
+  void _onScanSuccess(Code? code) {
+    setState(() {
+      successScans++;
+      result = code;
+    });
+  }
+
+  void _onScanFailure(Code? code) async {
+    setState(() {
+      failedScans++;
+    });
+
+    _processMsiScanFallback(code);
+  }
+
+  Future<void> _processMsiScanFallback(Code? code) async {
+    final now = DateTime.now();
+
+    if (now.difference(_lastMsiFallbackAttempt).inMilliseconds < 150) return;
+
+    if (code?.imageBytes != null && code!.imageBytes!.isNotEmpty) {
+      if (_isProcessingMsiFallback) return;
+
+      _lastMsiFallbackAttempt = now;
+      _isProcessingMsiFallback = true;
+
+      final String? msiCode = await MsiScannerService.decodeMsiYuv(
+        code.imageBytes!,
+        imageWidth: code.imageWidth ?? 0,
+        imageHeight: code.imageHeight ?? 0,
+      );
+
+      if (mounted && msiCode != null && msiCode.isNotEmpty) {
+        if (msiCode == _lastMsiCandidate) {
+          _msiCandidateMatchCount++;
+        } else {
+          _lastMsiCandidate = msiCode;
+          _msiCandidateMatchCount = 1;
+        }
+
+        if (_msiCandidateMatchCount >= 2) {
+          _lastMsiCandidate = null;
+          _msiCandidateMatchCount = 0;
+
+          setState(() {
+            successScans++;
+            result = Code(
+              text: msiCode,
+              format: FormatMsi.msiCode,
+              isValid: true,
+              duration: now.difference(_lastMsiFallbackAttempt).inMilliseconds,
+            );
+          });
+        }
+      }
+      _isProcessingMsiFallback = false;
+    }
+  }
+
+  void _onMultiScanSuccess(Codes codes) {
+    setState(() {
+      multiResult ??= Codes(codes: []);
+      for (final code in codes.codes) {
+        if (code.isValid &&
+            !multiResult!.codes.any((c) => c.text == code.text)) {
+          multiResult!.codes.add(code);
+          successScans++;
+        }
+      }
+      multiResult!.duration = codes.duration;
+    });
+  }
+
+  void _onMultiScanFailure(Codes result) {
+    setState(() {
+      failedScans++;
+    });
+    if (result.codes.isNotEmpty == true) {
+      _showMessage(context, 'Error: ${result.codes.first.error}');
+    }
+  }
+
+  void _onMultiScanModeChanged(bool isMultiScan) {
+    setState(() {
+      this.isMultiScan = isMultiScan;
+      result = null;
+      multiResult = null;
+      showMultiResult = false;
+    });
+  }
+
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _onReset() {
+    setState(() {
+      successScans = 0;
+      failedScans = 0;
+      result = null;
+      multiResult = null;
+      showMultiResult = false;
+    });
+  }
+}

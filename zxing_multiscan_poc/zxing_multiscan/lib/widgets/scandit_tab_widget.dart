@@ -18,7 +18,7 @@ class ScanditTabWidget extends StatefulWidget {
 }
 
 class _ScanditTabWidgetState extends State<ScanditTabWidget>
-    with WidgetsBindingObserver
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin
     implements BarcodeCountListener, BarcodeCountViewUiListener {
   DataCaptureContext? _context;
   BarcodeCount? _barcodeCount;
@@ -33,6 +33,9 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
   Codes? _scanditMultiResult;
   bool _showResultsScreen = false;
   final Stopwatch _stopwatch = Stopwatch();
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -70,7 +73,7 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
       // 1. Initialize DataCaptureContext
       final context = DataCaptureContext.forLicenseKey(_scanditLicenseKey);
 
-      // 2. Set up Camera frame source
+      // 2. Set up Camera frame source with recommended settings
       final camera = Camera.defaultCamera;
       if (camera != null) {
         camera.applySettings(BarcodeCount.createRecommendedCameraSettings());
@@ -78,9 +81,22 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
       }
       _camera = camera;
 
-      // 3. Configure BarcodeCountSettings (Enable ALL supported symbologies)
+      // 3. Configure BarcodeCountSettings (Optimized symbology set for maximum performance)
       final settings = BarcodeCountSettings();
-      for (final symbology in Symbology.values) {
+      const activeSymbologies = [
+        Symbology.ean13Upca,
+        Symbology.ean8,
+        Symbology.code128,
+        Symbology.code39,
+        Symbology.code93,
+        Symbology.qr,
+        Symbology.dataMatrix,
+        Symbology.pdf417,
+        Symbology.interleavedTwoOfFive,
+        Symbology.codabar,
+        Symbology.msiPlessey,
+      ];
+      for (final symbology in activeSymbologies) {
         settings.enableSymbology(symbology, true);
       }
 
@@ -213,6 +229,8 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Keep state alive in TabBarView
+
     if (_isInitializing) {
       return const Center(
         child: CircularProgressIndicator(),
