@@ -359,10 +359,13 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
       _activeScanMode = widget.scanMode;
       _isProcessing = false;
       _lastFrameTime = DateTime.fromMillisecondsSinceEpoch(0);
-      widget.controller?.updateStreamingState(
-        isStreaming: _controller?.value.isStreamingImages ?? false,
-        isPaused: false,
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.controller?.updateStreamingState(
+          isStreaming: _controller?.value.isStreamingImages ?? false,
+          isPaused: false,
+        );
+      });
     }
   }
 
