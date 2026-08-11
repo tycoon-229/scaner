@@ -35,7 +35,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Allow Flutter tools on your computer to connect and debug your application</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>POC MultiScan needs photo library access to scan barcodes</string>
+	<string>POC MultiScan needs photo library access to read barcode images</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>POC MultiScan needs permission to save barcode images when requested</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
