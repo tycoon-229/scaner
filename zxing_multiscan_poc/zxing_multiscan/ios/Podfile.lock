@@ -1,0 +1,40 @@
+PODS:
+  - dynamsoft_barcode_reader_bundle_flutter (11.4.3000):
+    - DynamsoftBarcodeReaderBundle (< 12.0.0, >= 11.4.3000)
+    - Flutter
+  - dynamsoft_capture_vision_flutter (3.4.3000):
+    - DynamsoftCaptureVisionBundle (< 4.0.0, >= 3.4.3000)
+    - Flutter
+  - DynamsoftBarcodeReaderBundle (11.6.1000):
+    - DynamsoftCaptureVisionBundle (= 3.6.1000)
+  - DynamsoftCaptureVisionBundle (3.6.1000)
+  - Flutter (1.0.0)
+
+DEPENDENCIES:
+  - dynamsoft_barcode_reader_bundle_flutter (from `.symlinks/plugins/dynamsoft_barcode_reader_bundle_flutter/ios`)
+  - dynamsoft_capture_vision_flutter (from `.symlinks/plugins/dynamsoft_capture_vision_flutter/ios`)
+  - Flutter (from `Flutter`)
+
+SPEC REPOS:
+  trunk:
+    - DynamsoftBarcodeReaderBundle
+    - DynamsoftCaptureVisionBundle
+
+EXTERNAL SOURCES:
+  dynamsoft_barcode_reader_bundle_flutter:
+    :path: ".symlinks/plugins/dynamsoft_barcode_reader_bundle_flutter/ios"
+  dynamsoft_capture_vision_flutter:
+    :path: ".symlinks/plugins/dynamsoft_capture_vision_flutter/ios"
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  dynamsoft_barcode_reader_bundle_flutter: b001fcfb5737f1828f8b1a65e342ff7c0826add0
+  dynamsoft_capture_vision_flutter: 247631f10e56ac6e33c22f07510fe404248ccd8f
+  DynamsoftBarcodeReaderBundle: 84c6dfb0d6b934f7a038c383463f8eb53537e946
+  DynamsoftCaptureVisionBundle: 73079c45b424422fc4dca8110875037c0794da47
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+
+PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
+
+COCOAPODS: 1.16.2

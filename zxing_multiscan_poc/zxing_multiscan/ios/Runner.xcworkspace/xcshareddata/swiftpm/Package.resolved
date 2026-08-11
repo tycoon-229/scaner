@@ -1,0 +1,32 @@
+{
+  "pins" : [
+    {
+      "identity" : "datacapture-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Scandit/datacapture-spm.git",
+      "state" : {
+        "revision" : "8d3853c12fa05d339c54612f4c0c06d0f971c057",
+        "version" : "8.5.2"
+      }
+    },
+    {
+      "identity" : "scandit-datacapture-frameworks-barcode",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Scandit/scandit-datacapture-frameworks-barcode.git",
+      "state" : {
+        "revision" : "e53abdcd9c8bd999011922fdac4756e991a37c0f",
+        "version" : "8.5.2"
+      }
+    },
+    {
+      "identity" : "scandit-datacapture-frameworks-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Scandit/scandit-datacapture-frameworks-core.git",
+      "state" : {
+        "revision" : "702a3aff1f2fe9a4ffa459a63441b94622a252fc",
+        "version" : "8.5.2"
+      }
+    }
+  ],
+  "version" : 2
+}
