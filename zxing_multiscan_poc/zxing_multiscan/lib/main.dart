@@ -53,7 +53,7 @@ class DemoPage extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           children: [
             ZxingTabWidget(isCameraSupported: isCameraSupported),
-            DynamsoftTabWidget(isCameraSupported: isCameraSupported),
+            DynamsoftTab(),
             const ScanditTabWidget(),
           ],
         ),

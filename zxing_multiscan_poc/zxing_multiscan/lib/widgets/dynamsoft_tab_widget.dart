@@ -1,236 +1,490 @@
-import 'package:dynamsoft_barcode_reader_bundle_flutter/dynamsoft_barcode_reader_bundle_flutter.dart';
+import 'package:camera/camera.dart';
+import 'package:dynamsoft_capture_vision_flutter/dynamsoft_capture_vision_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_zxing/flutter_zxing.dart';
 
-import '../extensions/dynamsoft_mapper_extensions.dart';
-import 'multiscan_result_widget.dart';
-import 'scan_result_widget.dart';
-import 'unsupported_platform_widget.dart';
+import 'multiscan_widget.dart';
+import 'scan_widget.dart';
+import 'camera_scanner/camera_scanner.dart';
 
-class DynamsoftTabWidget extends StatefulWidget {
-  const DynamsoftTabWidget({super.key, required this.isCameraSupported});
+// ─────────────────────────────────────────────────────────────────────────────
+// Top-level isolate helper (must be outside class for compute())
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final bool isCameraSupported;
+/// Data passed into the isolate for YUV → NV21 conversion.
+class _ConvertParams {
+  const _ConvertParams({
+    required this.yBytes,
+    required this.uBytes,
+    required this.vBytes,
+    required this.yRowStride,
+    required this.uvPixelStride,
+    required this.width,
+    required this.height,
+  });
 
-  @override
-  State<DynamsoftTabWidget> createState() => _DynamsoftTabWidgetState();
+  final Uint8List yBytes;
+  final Uint8List uBytes;
+  final Uint8List vBytes;
+  final int yRowStride;
+  final int uvPixelStride;
+  final int width;
+  final int height;
 }
 
-class _DynamsoftTabWidgetState extends State<DynamsoftTabWidget> {
-  Code? dymResult;
-  Codes? dymMultiResult;
-  String? dymError;
-  bool isDymMultiScan = false;
-  bool showDymMultiResult = false;
+/// Runs in a background isolate — no Flutter UI code allowed here.
+Uint8List _yuv420ToNv21Isolate(_ConvertParams p) {
+  final int ySize = p.width * p.height;
+  final Uint8List nv21 = Uint8List(ySize + ySize ~/ 2);
+
+  // Copy Y plane row by row (handles non-contiguous strides)
+  for (int row = 0; row < p.height; row++) {
+    nv21.setRange(
+      row * p.width,
+      row * p.width + p.width,
+      p.yBytes,
+      row * p.yRowStride,
+    );
+  }
+
+  // Interleave V, U → NV21
+  int offset = ySize;
+  for (int i = 0; i < p.uBytes.length; i += p.uvPixelStride) {
+    if (offset + 1 >= nv21.length) break;
+    nv21[offset++] = p.vBytes[i];
+    nv21[offset++] = p.uBytes[i];
+  }
+
+  return nv21;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DynamsoftTab
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Demo tab wiring [CameraScannerWidget] to [CaptureVisionRouter]
+/// for frame-by-frame Dynamsoft barcode decoding.
+///
+/// All heavy work (YUV conversion) is offloaded to a background isolate
+/// via [compute] so the camera preview stays smooth.
+class DynamsoftTab extends StatefulWidget {
+  const DynamsoftTab({super.key});
+
+  @override
+  State<DynamsoftTab> createState() => _DynamsoftTabState();
+}
+
+class _DynamsoftTabState extends State<DynamsoftTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  final ScannerUIController _scannerController = ScannerUIController();
+
+  /// Key-Value pairs list for multi scan results:
+  /// * `entry.key`   -> formatName (e.g. 'QR_CODE', 'EAN_13')
+  /// * `entry.value` -> decoded text string
+  final List<MapEntry<String, String>> _scannedEntries =
+  <MapEntry<String, String>>[];
+
+  /// Single scan result (Key = formatName, Value = text)
+  MapEntry<String, String>? _singleResult;
+
+  ScanMode _scanMode = ScanMode.single;
+  bool _showMultiResultScreen = false;
+
+  /// Prevents re-entrant captures (belt-and-suspenders on top of
+  /// [CameraScannerWidget]'s own _isProcessing guard).
+  bool _isCaptureRunning = false;
+
+  /// Selected preset template — driven by Dropdown overlay on camera UI.
+  String _selectedTemplate = EnumPresetTemplate.readBarcodesSpeedFirst;
+
+  static const List<Map<String, String>> _templateOptions =
+  <Map<String, String>>[
+    <String, String>{
+      'label': 'Mặc định',
+      'value': EnumPresetTemplate.readBarcodes
+    },
+    <String, String>{
+      'label': 'Ưu tiên tốc độ',
+      'value': EnumPresetTemplate.readBarcodesSpeedFirst
+    },
+    <String, String>{
+      'label': 'Ưu tiên độ chính xác',
+      'value': EnumPresetTemplate.readBarcodesReadRateFirst
+    },
+    <String, String>{
+      'label': 'Đơn mã',
+      'value': EnumPresetTemplate.readSingleBarcode
+    },
+  ];
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Lifecycle
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _scannerController.addListener(_onControllerChanged);
+    _initDynamsoft();
+  }
+
+  Future<void> _initDynamsoft() async {
+    try {
+      await LicenseManager.initLicense(
+        't0089pwAAAFIxakesHjAxT8hGaKw6pkzm2k2X+jTkZyf/4h1k/akqyMYyEuPPcb4kepghNZNBYM5zoJg7Ey90q3dkwJwYZ442+Fan8gPGs1Pnxl9u9BZrJ2W7InQ=',
+      );
+    } catch (e) {
+      debugPrint('[DynamsoftTab] initLicense error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _scannerController
+      ..removeListener(_onControllerChanged)
+      ..dispose();
+    CaptureVisionRouter.instance.dispose();
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Restarts the camera stream and laser animation when switching tabs.
+  Future<void> restartCameraLaser() async {
+    await _scannerController.restartCameraLaser();
+    if (mounted) {
+      setState(() {
+        _singleResult = null;
+        _scannedEntries.clear();
+        _showMultiResultScreen = false;
+      });
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Frame handler
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<bool?> _handleFrame(CameraImage image, Rect? cropRect) async {
+    // Extra guard: skip if a capture is already in-flight
+    if (_isCaptureRunning) return false;
+    _isCaptureRunning = true;
+
+    try {
+      // 1. Build ImageData (YUV conversion runs in isolate → non-blocking)
+      final ImageData? imageData = await _buildImageData(image);
+      if (imageData == null) return false;
+
+      // 2. Decode with Dynamsoft
+      final CapturedResult result =
+      await CaptureVisionRouter.instance.capture(
+        imageData,
+        _selectedTemplate,
+      );
+
+      // 3. Extract barcodes
+      final List<BarcodeResultItem> barcodes =
+          result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
+      if (barcodes.isEmpty) return false;
+
+      if (_scanMode == ScanMode.single) {
+        // Single: take first → show result → pause camera
+        final BarcodeResultItem first = barcodes.first;
+        if (mounted) {
+          setState(() {
+            _singleResult = MapEntry<String, String>(
+              first.formatString,
+              first.text,
+            );
+          });
+        }
+        return true; // CameraScannerWidget auto-pauses stream
+      } else {
+        // Multi: accumulate unique barcodes
+        bool hasNew = false;
+        for (final BarcodeResultItem b in barcodes) {
+          final MapEntry<String, String> e =
+          MapEntry<String, String>(b.formatString, b.text);
+          if (!_scannedEntries
+              .any((MapEntry<String, String> x) => x.value == e.value)) {
+            _scannedEntries.add(e);
+            hasNew = true;
+          }
+        }
+        if (hasNew && mounted) setState(() {});
+        return false;
+      }
+    } catch (e) {
+      debugPrint('[DynamsoftTab] capture error: $e');
+      return false;
+    } finally {
+      _isCaptureRunning = false;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Gallery handler
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<void> _handleGalleryImage(String path) async {
+    // Stop the live stream first so CaptureVisionRouter is free for a file decode.
+    await _scannerController.pauseStream();
+
+    try {
+      // captureFile works on an image path — no ImageData conversion needed.
+      final CapturedResult result =
+      await CaptureVisionRouter.instance.captureFile(
+        path,
+        EnumPresetTemplate.readBarcodesReadRateFirst, // best accuracy for still images
+      );
+
+      final List<BarcodeResultItem> barcodes =
+          result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
+
+      if (!mounted) return;
+
+      if (barcodes.isNotEmpty) {
+        setState(() {
+          _singleResult = MapEntry<String, String>(
+            barcodes.first.formatString,
+            barcodes.first.text,
+          );
+        });
+      } else {
+        _showMessage(context, 'Không tìm thấy mã hợp lệ trong ảnh');
+        // Resume stream so user can scan again
+        _resumeScan();
+      }
+    } catch (e) {
+      debugPrint('[DynamsoftTab] gallery decode error: $e');
+      if (mounted) _showMessage(context, 'Lỗi đọc ảnh: $e');
+      _resumeScan();
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // CameraImage → Dynamsoft ImageData
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<ImageData?> _buildImageData(CameraImage image) async {
+    try {
+      switch (image.format.group) {
+        case ImageFormatGroup.yuv420:
+        // Offload YUV → NV21 conversion to a background isolate
+          final Uint8List nv21 = await compute(
+            _yuv420ToNv21Isolate,
+            _ConvertParams(
+              yBytes: image.planes[0].bytes,
+              uBytes: image.planes[1].bytes,
+              vBytes: image.planes[2].bytes,
+              yRowStride: image.planes[0].bytesPerRow,
+              uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
+              width: image.width,
+              height: image.height,
+            ),
+          );
+          return ImageData(
+            bytes: nv21,
+            width: image.width,
+            height: image.height,
+            stride: image.width,
+            format: EnumImagePixelFormat.nv21,
+            orientation: 0,
+          );
+
+        case ImageFormatGroup.bgra8888:
+        // iOS BGRA — already contiguous, copy directly
+          return ImageData(
+            bytes: image.planes[0].bytes,
+            width: image.width,
+            height: image.height,
+            stride: image.planes[0].bytesPerRow,
+            format: EnumImagePixelFormat.abgr8888,
+            orientation: 0,
+          );
+
+        default:
+          return null;
+      }
+    } catch (e) {
+      debugPrint('[DynamsoftTab] _buildImageData error: $e');
+      return null;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Build
+  // ──────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) {
-      return const UnsupportedPlatformWidget();
-    } else if (!widget.isCameraSupported) {
-      return const Center(child: Text('Camera not supported on this platform'));
-    } else if (!isDymMultiScan &&
-        dymResult != null &&
-        dymResult?.isValid == true) {
-      return ScanResultWidget(
-        result: dymResult,
-        onScanAgain: () => setState(() => dymResult = null),
+    super.build(context);
+
+    // 1. Single Scan result screen
+    if (_scanMode == ScanMode.single && _singleResult != null) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: Container(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: ScanWidget(
+            resultText: _singleResult!.value,
+            resultFormatName: _singleResult!.key,
+            onScanAgain: () {
+              setState(() => _singleResult = null);
+              _resumeScan();
+            },
+          ),
+        ),
       );
-    } else if (isDymMultiScan &&
-        showDymMultiResult &&
-        dymMultiResult != null &&
-        dymMultiResult!.codes.isNotEmpty) {
-      return MultiScanResultWidget(
-        multiResult: dymMultiResult,
-        onScanAgain: () => setState(() {
-          dymMultiResult = null;
-          showDymMultiResult = false;
-        }),
+    }
+
+    // 2. Multi Scan result screen
+    if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: SafeArea(
+          child: MultiScanWidget(
+            results: _scannedEntries,
+            onScanAgain: () {
+              setState(() {
+                _scannedEntries.clear();
+                _showMultiResultScreen = false;
+              });
+              _resumeScan();
+            },
+          ),
+        ),
       );
-    } else {
-      return Container(
-        color: Colors.black,
-        child: Stack(
-          children: [
-            Center(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.qr_code_scanner,
-                        size: 90,
-                        color: Colors.white70,
+    }
+
+    // 3. Live Camera Scanner UI
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: <Widget>[
+          // ── Camera Scanner ─────────────────────────────────────────────────
+          CameraScannerWidget(
+            controller: _scannerController,
+            scanMode: _scanMode,
+
+            // ▼ Anti-lag settings ▼
+            // Lower resolution = smaller frames = faster YUV conversion + decode.
+            // medium ≈ 720p on most devices, still adequate for barcode reading.
+            resolution: ResolutionPreset.medium,
+            // scanDelay: cooldown after each attempt — avoids hammer-calling capture()
+            scanDelay: const Duration(milliseconds: 300),
+            // frameIntervalMs only applies in multiscan; single uses scanDelay above
+            frameIntervalMs: 400,
+
+            onFrameCaptured: _handleFrame,
+            onGalleryImageSelected: _handleGalleryImage,
+            onControllerCreated: (CameraController? cam, Exception? err) {
+              if (err != null && mounted) {
+                _showMessage(context, 'Camera error: $err');
+              }
+            },
+            onScanModeChanged: (ScanMode mode) {
+              setState(() {
+                _scanMode = mode;
+                _singleResult = null;
+                _scannedEntries.clear();
+                _showMultiResultScreen = false;
+              });
+            },
+            scanModeAlignment: Alignment.bottomRight,
+            cropPercent: _scanMode == ScanMode.single ? 0.5 : 0,
+            overlayColor: Colors.black45,
+
+            // ── Flutter Overlay: Template Dropdown ────────────────────────
+            overlayWidget: Positioned(
+              bottom: 140,
+              right: 12,
+              child: Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(20),
+                  border:
+                  Border.all(color: Colors.orange.shade400, width: 1.5),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedTemplate,
+                    dropdownColor: Colors.black87,
+                    iconEnabledColor: Colors.orange,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    isDense: true,
+                    items: _templateOptions
+                        .map(
+                          (Map<String, String> opt) => DropdownMenuItem<String>(
+                        value: opt['value'],
+                        child: Text(opt['label']!),
                       ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Dynamsoft Barcode Reader',
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isDymMultiScan
-                            ? 'Mode: Multi-Barcode Scanning'
-                            : 'Mode: Single Barcode Scanning',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
-                            ),
-                      ),
-                      const SizedBox(height: 28),
-                      SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment<bool>(
-                            value: false,
-                            label: Text('Single Scan'),
-                            icon: Icon(Icons.qr_code),
-                          ),
-                          ButtonSegment<bool>(
-                            value: true,
-                            label: Text('Multi Scan'),
-                            icon: Icon(Icons.qr_code_scanner),
-                          ),
-                        ],
-                        selected: {isDymMultiScan},
-                        onSelectionChanged: (Set<bool> newSelection) {
-                          setState(() {
-                            isDymMultiScan = newSelection.first;
-                            dymResult = null;
-                            dymMultiResult = null;
-                            showDymMultiResult = false;
-                          });
-                        },
-                        style: ButtonStyle(
-                          backgroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? Colors.orange
-                                : Colors.grey.shade900,
-                          ),
-                          foregroundColor:
-                              WidgetStateProperty.all(Colors.white),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      ElevatedButton.icon(
-                        onPressed: () => _launchBarcodeScanner(
-                          isDymMultiScan
-                              ? EnumScanningMode.multiple
-                              : EnumScanningMode.single,
-                        ),
-                        icon: const Icon(Icons.camera_alt),
-                        label: Text(
-                          isDymMultiScan
-                              ? 'Start Multi Scan'
-                              : 'Start Single Scan',
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 16,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                      ),
-                      if (dymMultiResult != null &&
-                          dymMultiResult!.codes.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        OutlinedButton.icon(
-                          onPressed: () => setState(() {
-                            isDymMultiScan = true;
-                            showDymMultiResult = true;
-                          }),
-                          icon: const Icon(Icons.list_alt),
-                          label: Text(
-                            'View Multi Results (${dymMultiResult!.codes.length})',
-                            style: const TextStyle(fontSize: 15),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.orange,
-                            side: const BorderSide(color: Colors.orange),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                    )
+                        .toList(),
+                    onChanged: (String? val) {
+                      if (val != null) {
+                        setState(() => _selectedTemplate = val);
+                      }
+                    },
                   ),
                 ),
               ),
             ),
-          ],
-        ),
-      );
-    }
+          ),
+
+          // ── Multi Scan: floating result button ─────────────────────────────
+          if (_scanMode == ScanMode.multiscan && _scannedEntries.isNotEmpty)
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 80,
+              child: Center(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 14),
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                  icon: const Icon(Icons.list_alt, size: 22),
+                  label: Text(
+                    'Xem kết quả (${_scannedEntries.length} mã đã quét)',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () =>
+                      setState(() => _showMultiResultScreen = true),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
-  void _launchBarcodeScanner(EnumScanningMode scanningMode) async {
-    final startTime = DateTime.now();
-    var config = BarcodeScannerConfig(
-      license:
-          "t0089pwAAAFIxakesHjAxT8hGaKw6pkzm2k2X+jTkZyf/4h1k/akqyMYyEuPPcb4kepghNZNBYM5zoJg7Ey90q3dkwJwYZ442+Fan8gPGs1Pnxl9u9BZrJ2W7InQ=",
-      scanningMode: scanningMode,
-      isVibrateEnabled: true,
-      maxConsecutiveStableFramesToExit: 5,
+  // ──────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────────────────────────────────
+
+  void _resumeScan() {
+    _scannerController.resumeStream(
+          (CameraImage image) => _handleFrame(image, null),
     );
+  }
 
-    BarcodeScanResult barcodeScanResult = await BarcodeScanner.launch(config);
-    final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-
-    setState(() {
-      isDymMultiScan = scanningMode == EnumScanningMode.multiple;
-      if (barcodeScanResult.status == EnumResultStatus.canceled) {
-        // Canceled scan, do not record failure
-      } else if (barcodeScanResult.status == EnumResultStatus.exception) {
-        dymError =
-            "ErrorCode: ${barcodeScanResult.errorCode}\nErrorString: ${barcodeScanResult.errorMessage}";
-        if (scanningMode == EnumScanningMode.single) {
-          dymResult = Code(
-            isValid: false,
-            duration: elapsedMs,
-          );
-        } else {
-          dymMultiResult = Codes(
-            codes: [],
-            duration: elapsedMs,
-          );
-        }
-      } else {
-        // EnumResultStatus.finished
-        dymError = null;
-        if (scanningMode == EnumScanningMode.single) {
-          final code = barcodeScanResult.toSingleCode(duration: elapsedMs);
-          if (code != null && code.isValid) {
-            dymResult = code;
-          }
-        } else {
-          final codes = barcodeScanResult.toCodes(duration: elapsedMs);
-          if (codes.codes.isNotEmpty) {
-            dymMultiResult ??= Codes(codes: []);
-            for (final c in codes.codes) {
-              if (c.isValid &&
-                  !dymMultiResult!.codes.any((exist) => exist.text == c.text)) {
-                dymMultiResult!.codes.add(c);
-              }
-            }
-            dymMultiResult!.duration = elapsedMs;
-            showDymMultiResult = true;
-          }
-        }
-      }
-    });
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }
