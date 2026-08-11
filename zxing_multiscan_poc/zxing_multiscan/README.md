@@ -48,6 +48,9 @@ Required by `pubspec.yaml`:
 ## Repository Structure
 
 ```text
+.run/                         # Shared Android Studio / IntelliJ run configs
+.vscode/
+  launch.json                 # Shared VS Code run configs
 lib/
   config/
     license_keys.dart          # Scandit and Dynamsoft license constants
@@ -172,6 +175,49 @@ Build iOS debug app without code signing:
 flutter build ios --debug --no-codesign
 ```
 
+## IDE Run Configurations
+
+The repository includes shared run configurations so teammates can pull the
+source and run the same modes from the IDE toolbar.
+
+### VS Code
+
+Shared file:
+
+```text
+.vscode/launch.json
+```
+
+Available configurations:
+
+- `POC MultiScan`: runs the normal live scanner flow.
+- `POC MultiScan Preview`: runs with
+  `--dart-define=PREVIEW_SCAN_RESULTS=true`.
+
+Open the Run and Debug panel, select the desired configuration, then press Run.
+
+### Android Studio / IntelliJ
+
+Shared files:
+
+```text
+.run/POC MultiScan.run.xml
+.run/POC MultiScan Preview.run.xml
+```
+
+Available configurations:
+
+- `POC MultiScan`: runs the normal live scanner flow.
+- `POC MultiScan Preview`: runs with
+  `--dart-define=PREVIEW_SCAN_RESULTS=true`.
+
+Select the desired configuration from the Run Configuration dropdown in the
+toolbar. If the configurations do not appear immediately after pulling the
+source, reopen the project or run `File > Sync Project with Gradle Files`.
+
+Device selection is intentionally not committed. Each developer should select
+their own simulator, emulator, or physical device in the IDE.
+
 ## Result UI Preview Mode
 
 Use preview mode when you want to check the result-list UI on a simulator or
@@ -195,9 +241,8 @@ flow.
 
 Shared IDE launch configurations are included:
 
-- VS Code: select `POC MultiScan Preview` from Run and Debug.
-- Android Studio / IntelliJ: select `POC MultiScan Preview` from the run
-  configuration dropdown.
+- VS Code: `.vscode/launch.json`
+- Android Studio / IntelliJ: `.run/*.run.xml`
 
 The normal `POC MultiScan` configuration runs the live scanner flow.
 
