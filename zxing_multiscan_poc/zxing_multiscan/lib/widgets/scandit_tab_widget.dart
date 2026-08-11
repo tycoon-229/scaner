@@ -5,7 +5,7 @@ import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_
 import 'package:scandit_flutter_datacapture_core/scandit_flutter_datacapture_core.dart';
 
 import '../extensions/scandit_mapper_extensions.dart';
-import 'multiscan_result_widget.dart';
+import 'scan_result_widget.dart';
 
 // NOTE: Replace 'YOUR_SCANDIT_LICENSE_KEY' with your valid Scandit License Key.
 const String _scanditLicenseKey = 'AoI3UA49JoYaM/oyfMc9kQAOoFFnHmdgaxabYHoa6qzPMdhHEkLIYeBMa917bvLd1HFXOXJ7DbT0eCfZ0w8wLnIXUc2qfnFdmm/qEwsiqdx0BWSQbkOuuqgnChJHQJRyt0WVku9Y512+GRxYlUZSPg1rpMJ6Sr3VclCS5Y5oO5sofzfTzBX+bM5ueNKtVDxozxJZZFNFuLYrQ/i2qGmxGQJEKGEQT8mLX1ruaIoUOYKsS1UAMmvg0I9QVb6oZwEJBnBMZvRN//i7RiknzX0lHkJTyS4ZSH7nwHk/DIlpgSDgWwrhEEFOqFNNIEcoaDHsN3YcIDh3B12Mek1RZ1QBqkF57J6AUKFAZmZZRw5tm3dnQYYLsmf9uFFTF5opeuQ/DAzs4C9xs2NKcpiymGfa25cGWiKAa8PkD0PHfokRYHffe98MlEvBE3txnyxhRuDhR1aLK4wBW8g9Jit1234bDKJXDBNeJJ87YkCCvSlLJ74dCKY/aVQvAlx1FtH7ZxMMo25+dSEqnDfafgKMdjmNyVBQtbgTcfntWibUP8hUvbEGGUIx/GlYD1VPoMy1Jmq/aHWeV8ZgX7PpSczHEw8714lkWqt8Tt4QFlQpD3Yh4s1OE5rpBnIT+zhpr+VeeXgXO0NL1B0S6UbwE/T0Lm+tEnpzd6LafNtK4XQw2oU7/SSHHi8WCnMWradfF2BiU+4q+1Jw6vp0U/B1dpb3rV7bfZBjLdkIYvcdi1AP/QR7wNICCFKrUEWfUg0MDgIhVLdNvHY3JRRXZETmUDVb3zi15vlcsSEOFDl140WsLSw27R3mcEG8PT4iphVsNK90LhuAFA2IyOt4S/9ZZ5zxr2vg77Fpz3w5bFbDmmC5i6BW6o3cT+IlpXYfwu1DTawtR/ibiwhOKUBT+PpiJlfcWmAW9fp8zvHPZWijz0xZNI1xLVdff4jh+0TzYM0BmXdPSPW3MG92ssoAr5zqf2FV8DfTaMR4wzepAsmjlRJ7FbHYbneY1BCENZyerPYg4Cx/l2bpvkns3aorO6CQmPbfKO56/EJHk9C2YMfnI75FQJGNg8X+b9HANxdpMX50tpLZSeL+lLILIX8ZjJedfmILji/kXMpd8DeR2y96EOUnYIo1A2EP/A5oU09dSsntK16qDJqSF+2Z4WdwfzlkEZAAzlMCqZca0ZhNOZdIl3e1Rj5W6odhoyGfIHv3n53VBdNt2GA6oIqCFtw30dwS37hM0AeA9hjanoa/FH8+oa4zkelvJkBPCb1WxaOEUKO9adbIkQuliUoAeM+7J9zFDC51f7OoIzzfRGohXQ6FmgQ6aLecdUgz2iBIxDexaoy0uEOBwpuLIm0L+whZvwD5hPM4FrcTZnjgY7wcKgLc3BvJsmtgloHIp499yRsxebxzZP5rGUX6fXUEfYQxZfU8zrPhadQuGX5AYuAHv7hrXV3UWcWgCXpJsD0XunKPckcOsIay0Ie8h76+tY2K1nhxuV73KvfyJIvg/TBqC0xIUNlZBpsu8SgC9TH8dniTWCMk/0Y+xN32KhH7R2KTt4/tJh2zVlFuBZVj8DPcGDSg/CGOkm+Cx+79Oy6ssUQ8+D8jIR1+Kc5JrXfAvcCoCY248MAuD9GhoWcqVrTBKjxF08m0DOcAeeyg7fRj77Gk9+caBHxuv02MWGqcabGpeN2UtQ==';
@@ -253,9 +253,20 @@ class _ScanditTabWidgetState extends State<ScanditTabWidget>
     if (_showResultsScreen &&
         _scanditMultiResult != null &&
         _scanditMultiResult!.codes.isNotEmpty) {
-      return MultiScanResultWidget(
-        multiResult: _scanditMultiResult,
-        onScanAgain: _resetScan,
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: SafeArea(
+          child: ScanResultWidget(
+            results: _scanditMultiResult!.codes
+                .where((c) => c.isValid && c.text != null)
+                .map((c) => MapEntry<String, String>(
+                      c.format?.name ?? '',
+                      c.text!,
+                    ))
+                .toList(),
+            onScanAgain: _resetScan,
+          ),
+        ),
       );
     }
 

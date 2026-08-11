@@ -3,7 +3,7 @@ import 'package:dynamsoft_capture_vision_flutter/dynamsoft_capture_vision_flutte
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'multiscan_widget.dart';
+import 'scan_result_widget.dart';
 import 'camera_scanner/camera_scanner.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
-          child: MultiScanWidget(
+          child: ScanResultWidget(
             results: <MapEntry<String, String>>[_singleResult!],
             onScanAgain: () {
               setState(() => _singleResult = null);
@@ -322,7 +322,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
-          child: MultiScanWidget(
+          child: ScanResultWidget(
             results: _scannedEntries,
             onScanAgain: () {
               setState(() {

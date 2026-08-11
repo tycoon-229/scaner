@@ -33,10 +33,6 @@ class DemoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isCameraSupported =
-        defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.android;
-
     return DefaultTabController(
       length: 3,
       child: Scaffold(

@@ -5,7 +5,7 @@ import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import '../extensions/code_format_extensions.dart';
 import '../services/msi_scanner_service.dart';
-import 'multiscan_widget.dart';
+import 'scan_result_widget.dart';
 import 'camera_scanner/camera_scanner.dart';
 
 /// Demo page showing how to wire [CameraScannerWidget] to [flutter_zxing] decoder.
@@ -15,7 +15,7 @@ import 'camera_scanner/camera_scanner.dart';
 /// * Multi scan: Continuously decodes code-by-code with high sensitivity,
 ///   accumulating unique Key-Value pairs (`MapEntry(formatName, decodedText)`),
 ///   and displaying a floating "Xem kết quả (N mã)" button.
-/// * Displays [MultiScanWidget] (accepts `List<MapEntry<String, String>>`) as a dedicated Widget screen.
+/// * Displays [ScanResultWidget] (accepts `List<MapEntry<String, String>>`) as a dedicated Widget screen.
 /// * Gallery scan: Decodes images picked from gallery.
 class ZxingTab extends StatefulWidget {
   const ZxingTab({super.key});
@@ -210,7 +210,7 @@ class _ZxingTabState extends State<ZxingTab>
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
-          child: MultiScanWidget(
+          child: ScanResultWidget(
             results: <MapEntry<String, String>>[
               MapEntry<String, String>(
                 result?.format?.name ?? '',
@@ -233,7 +233,7 @@ class _ZxingTabState extends State<ZxingTab>
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
-          child: MultiScanWidget(
+          child: ScanResultWidget(
             results: _scannedEntries, //
             onScanAgain: () {
               setState(() {
