@@ -166,7 +166,6 @@ class CameraScannerOverlayBorder extends ShapeBorder {
     canvas
       ..saveLayer(rect, backgroundPaint)
       ..drawRect(rect, backgroundPaint)
-
       // Top-right corner bracket
       ..drawRRect(
         RRect.fromLTRBAndCorners(
@@ -178,7 +177,6 @@ class CameraScannerOverlayBorder extends ShapeBorder {
         ),
         borderPaint,
       )
-
       // Top-left corner bracket
       ..drawRRect(
         RRect.fromLTRBAndCorners(
@@ -190,7 +188,6 @@ class CameraScannerOverlayBorder extends ShapeBorder {
         ),
         borderPaint,
       )
-
       // Bottom-right corner bracket
       ..drawRRect(
         RRect.fromLTRBAndCorners(
@@ -202,7 +199,6 @@ class CameraScannerOverlayBorder extends ShapeBorder {
         ),
         borderPaint,
       )
-
       // Bottom-left corner bracket
       ..drawRRect(
         RRect.fromLTRBAndCorners(
@@ -214,13 +210,11 @@ class CameraScannerOverlayBorder extends ShapeBorder {
         ),
         borderPaint,
       )
-
       // Punch the transparent cutout window through the overlay layer
       ..drawRRect(
         RRect.fromRectAndRadius(cutOutRect, Radius.circular(borderRadius)),
         boxPaint,
       )
-
       ..restore();
   }
 }

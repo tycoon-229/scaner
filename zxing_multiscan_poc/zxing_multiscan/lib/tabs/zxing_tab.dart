@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
-import '../extensions/code_format_extensions.dart';
-import '../services/msi_scanner_service.dart';
-import 'scan_result_widget.dart';
-import 'camera_scanner/camera_scanner.dart';
+import 'package:flutter_zxing_example/extensions/code_format_extensions.dart';
+import 'package:flutter_zxing_example/services/msi_scanner_service.dart';
+import 'package:flutter_zxing_example/utils/scan_entries.dart';
+import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
+import 'package:flutter_zxing_example/widgets/camera_scanner/camera_scanner.dart';
+import 'package:flutter_zxing_example/widgets/scanner_camera_preview.dart';
+import 'package:flutter_zxing_example/widgets/scanner_live_scaffold.dart';
+import 'package:flutter_zxing_example/widgets/scanner_message.dart';
 
 /// Demo page showing how to wire [CameraScannerWidget] to [flutter_zxing] decoder.
 ///
@@ -14,7 +18,7 @@ import 'camera_scanner/camera_scanner.dart';
 /// * Single scan: Automatically pauses stream and shows [ScanWidget] on success.
 /// * Multi scan: Continuously decodes code-by-code with high sensitivity,
 ///   accumulating unique Key-Value pairs (`MapEntry(formatName, decodedText)`),
-///   and displaying a floating "Xem kết quả (N mã)" button.
+///   and displaying a floating results button.
 /// * Displays [ScanResultWidget] (accepts `List<MapEntry<String, String>>`) as a dedicated Widget screen.
 /// * Gallery scan: Decodes images picked from gallery.
 class ZxingTab extends StatefulWidget {
@@ -38,9 +42,9 @@ class _ZxingTabState extends State<ZxingTab>
   int _msiCandidateMatchCount = 0;
 
   /// Key-Value pairs list for multi scan results:
-  /// * `entry.key`   -> formatName (loại mã, e.g. 'QR_CODE', 'EAN_13')
+  /// * `entry.key`   -> formatName (e.g. 'QR_CODE', 'EAN_13')
   /// * `entry.value` -> decoded text string
-  final List<MapEntry<String, String>> _scannedEntries = <MapEntry<String, String>>[];
+  final List<ScanEntry> _scannedEntries = <ScanEntry>[];
 
   ScanMode _scanMode = ScanMode.single;
   bool _showMultiResultScreen = false;
@@ -59,8 +63,7 @@ class _ZxingTabState extends State<ZxingTab>
     if (mounted) {
       setState(() {
         result = null;
-        _scannedEntries.clear();
-        _showMultiResultScreen = false;
+        _clearMultiResults();
       });
     }
   }
@@ -126,7 +129,10 @@ class _ZxingTabState extends State<ZxingTab>
       try {
         final Codes res = await zx
             .processCameraImageMulti(image, params)
-            .timeout(const Duration(milliseconds: 1000), onTimeout: () => Codes());
+            .timeout(
+              const Duration(milliseconds: 1000),
+              onTimeout: () => Codes(),
+            );
 
         if (res.codes.isNotEmpty) {
           bool hasNewCode = false;
@@ -135,9 +141,7 @@ class _ZxingTabState extends State<ZxingTab>
               final String key = c.format?.name ?? 'UNKNOWN';
               final String value = c.text!;
 
-              // Avoid duplicate text entries
-              if (!_scannedEntries.any((MapEntry<String, String> e) => e.value == value)) {
-                _scannedEntries.add(MapEntry<String, String>(key, value));
+              if (addUniqueScanEntry(_scannedEntries, ScanEntry(key, value))) {
                 hasNewCode = true;
               }
             }
@@ -153,7 +157,10 @@ class _ZxingTabState extends State<ZxingTab>
       try {
         final Code res = await zx
             .processCameraImage(image, params)
-            .timeout(const Duration(milliseconds: 1000), onTimeout: () => Code());
+            .timeout(
+              const Duration(milliseconds: 1000),
+              onTimeout: () => Code(),
+            );
         _processMsiScanFallback(res);
         if (res.isValid) {
           if (mounted) {
@@ -192,7 +199,7 @@ class _ZxingTabState extends State<ZxingTab>
       }
     } else {
       if (mounted) {
-        _showMessage(context, 'Không tìm thấy mã hợp lệ trong ảnh');
+        showScannerMessage(context, 'No valid code found in the image');
       }
     }
   }
@@ -206,140 +213,58 @@ class _ZxingTabState extends State<ZxingTab>
     super.build(context);
 
     // 1. Single Scan result screen
-    if (_scanMode == ScanMode.single && result != null && result?.isValid == true) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: SafeArea(
-          child: ScanResultWidget(
-            results: <MapEntry<String, String>>[
-              MapEntry<String, String>(
-                result?.format?.name ?? '',
-                result?.text ?? '',
-              ),
-            ],
-            onScanAgain: () {
-              setState(() {
-                result = null;
-              });
-              _resumeScan();
-            },
-          ),
-        ),
-      );
-    }
-
-    // 2. Multi Scan result screen (Passes List<MapEntry<String, String>> directly to MultiScanResultWidget)
-    if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: SafeArea(
-          child: ScanResultWidget(
-            results: _scannedEntries, //
-            onScanAgain: () {
-              setState(() {
-                _scannedEntries.clear();
-                _showMultiResultScreen = false;
-              });
-              _resumeScan();
-            },
-          ),
-        ),
-      );
-    }
-
-    // 3. Live Camera Scanner UI
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: <Widget>[
-          // ── Camera Scanner ──────────────────────────────────────────────
-          CameraScannerWidget(
-            tabIndex: 0,
-            controller: _scannerController,
-            scanMode: _scanMode,
-            scanDelay: const Duration(milliseconds: 50),
-            frameIntervalMs: _scanMode == ScanMode.single ? 500 : 150,
-            onFrameCaptured: _handleFrame,
-            onGalleryImageSelected: _handleGalleryImage,
-            onControllerCreated: (CameraController? cam, Exception? err) {
-              if (err != null && mounted) {
-                _showMessage(context, 'Camera error: $err');
-              }
-            },
-            onScanModeChanged: (ScanMode mode) {
-              setState(() {
-                _scanMode = mode;
-                result = null;
-                _scannedEntries.clear();
-                _showMultiResultScreen = false;
-              });
-            },
-            scanModeAlignment: Alignment.bottomRight,
-            cropPercent: _scanMode == ScanMode.single ? 0.5 : 0,
-            overlayColor: Colors.black45,
-            resolution: ResolutionPreset.high,
-          ),
-
-          // ── Single Scan: FAB for manual resume ──────────────────────────
-          if (_scanMode == ScanMode.single &&
-              _scannerController.isPaused &&
-              result == null)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 80,
-              child: Center(
-                child: FloatingActionButton.extended(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black87,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text(
-                    'Nhấn để quét lại',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  onPressed: _resumeScan,
-                ),
-              ),
-            ),
-
-          // ── Multi Scan: Floating button to open MultiScanResultWidget page ─
-          if (_scanMode == ScanMode.multiscan && _scannedEntries.isNotEmpty)
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: 80,
-              child: Center(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 14,
-                    ),
-                    elevation: 6,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  icon: const Icon(Icons.list_alt, size: 22),
-                  label: Text(
-                    'Xem kết quả (${_scannedEntries.length} mã đã quét)',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _showMultiResultScreen = true;
-                    });
-                  },
-                ),
-              ),
-            ),
+    if (_scanMode == ScanMode.single &&
+        result != null &&
+        result?.isValid == true) {
+      return ScanResultPage(
+        results: <ScanEntry>[
+          ScanEntry(result?.format?.name ?? '', result?.text ?? ''),
         ],
+        onScanAgain: () {
+          setState(() {
+            result = null;
+          });
+          _resumeScan();
+        },
+      );
+    }
+
+    // 2. Multi Scan result screen
+    if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
+      return ScanResultPage(
+        results: _scannedEntries,
+        onScanAgain: () {
+          setState(_clearMultiResults);
+          _resumeScan();
+        },
+      );
+    }
+
+    return ScannerLiveScaffold(
+      preview: ScannerCameraPreview(
+        tabIndex: 0,
+        controller: _scannerController,
+        scanMode: _scanMode,
+        scanDelay: const Duration(milliseconds: 50),
+        frameIntervalMs: _scanMode == ScanMode.single ? 500 : 150,
+        onFrameCaptured: _handleFrame,
+        onGalleryImageSelected: _handleGalleryImage,
+        onControllerCreated: (CameraController? cam, Exception? err) {
+          if (err != null && mounted) {
+            showScannerMessage(context, 'Camera error: $err');
+          }
+        },
+        resolution: ResolutionPreset.high,
       ),
+      scanMode: _scanMode,
+      resultCount: _scannedEntries.length,
+      onShowResults: _showMultiResults,
+      onModeChanged: _changeMode,
+      showResumeButton:
+          _scanMode == ScanMode.single &&
+          _scannerController.isPaused &&
+          result == null,
+      onResumeScan: _resumeScan,
     );
   }
 
@@ -392,10 +317,20 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
-  void _showMessage(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  void _changeMode(ScanMode mode) {
+    setState(() {
+      _scanMode = mode;
+      result = null;
+      _clearMultiResults();
+    });
+  }
+
+  void _clearMultiResults() {
+    _scannedEntries.clear();
+    _showMultiResultScreen = false;
+  }
+
+  void _showMultiResults() {
+    setState(() => _showMultiResultScreen = true);
   }
 }

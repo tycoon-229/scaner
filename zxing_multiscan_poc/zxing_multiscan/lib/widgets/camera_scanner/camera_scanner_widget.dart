@@ -25,10 +25,8 @@ import 'scanner_ui_controller.dart';
 /// Return `true` to signal a **successful decode** in [ScanMode.single]:
 /// the widget will then pause the stream automatically. Return `false`
 /// (or `null`) to keep streaming.
-typedef FrameCapturedCallback = Future<bool?> Function(
-  CameraImage image,
-  Rect? cropRect,
-);
+typedef FrameCapturedCallback =
+    Future<bool?> Function(CameraImage image, Rect? cropRect);
 
 /// Signature for the gallery-image callback.
 ///
@@ -77,11 +75,12 @@ class CameraScannerWidget extends StatefulWidget {
     this.showScannerOverlay = true,
     this.scannerOverlay,
     this.showScanLine = true,
-    this.scanLineColor = Colors.green,
+    this.scanLineColor,
     // overlayColor matches zxing default: Colors.black45
     this.overlayColor = Colors.black45,
     // borderColor defaults to Theme.primaryColor at build time
     this.borderColor,
+
     /// Size of the viewfinder as a fraction of the shorter screen side.
     /// Set to 0 to disable the cut-out (full-screen scan / multiscan style).
     this.cropPercent = 0.5,
@@ -136,7 +135,7 @@ class CameraScannerWidget extends StatefulWidget {
   /// * [cameraController] is non-null on success.
   /// * [error] is non-null on failure.
   final void Function(CameraController? cameraController, Exception? error)?
-      onControllerCreated;
+  onControllerCreated;
 
   /// Called when the user picks an image from the gallery.
   /// Receives the file path so you can pass it to your decoder.
@@ -189,8 +188,8 @@ class CameraScannerWidget extends StatefulWidget {
   /// Whether to show the animated scan line inside the cut-out.
   final bool showScanLine;
 
-  /// Colour of the animated scan line.
-  final Color scanLineColor;
+  /// Colour of the animated scan line. Defaults to [ThemeData.primaryColor].
+  final Color? scanLineColor;
 
   /// Colour of the dark overlay surrounding the cut-out. Defaults to [Colors.black45].
   final Color overlayColor;
@@ -354,10 +353,26 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
   }
 
   @override
+  void didUpdateWidget(covariant CameraScannerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scanMode != widget.scanMode) {
+      _activeScanMode = widget.scanMode;
+      _isProcessing = false;
+      _lastFrameTime = DateTime.fromMillisecondsSinceEpoch(0);
+      widget.controller?.updateStreamingState(
+        isStreaming: _controller?.value.isStreamingImages ?? false,
+        isPaused: false,
+      );
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (widget.tabIndex != null) {
-      final TabController? newController = DefaultTabController.maybeOf(context);
+      final TabController? newController = DefaultTabController.maybeOf(
+        context,
+      );
       if (_tabController != newController) {
         _tabController?.removeListener(_onTabChanged);
         _tabController = newController;
@@ -396,7 +411,9 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
           orElse: () => cameras.first,
         );
 
-        final TabController? tabController = DefaultTabController.maybeOf(context);
+        final TabController? tabController = DefaultTabController.maybeOf(
+          context,
+        );
         if (widget.tabIndex != null &&
             tabController != null &&
             tabController.index != widget.tabIndex) {
@@ -465,7 +482,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
       if (!cam.value.isStreamingImages) {
         try {
           await cam.startImageStream(
-            (CameraImage image) => _processImageStream(image, _controllerVersion),
+            (CameraImage image) =>
+                _processImageStream(image, _controllerVersion),
           );
         } catch (e) {
           debugPrint('[CameraScannerWidget] restartCameraLaser error: $e');
@@ -537,10 +555,15 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
     }
     _isCameraOn = false;
     _isProcessing = false;
-    widget.controller?.updateStreamingState(isStreaming: false, isPaused: false);
+    widget.controller?.updateStreamingState(
+      isStreaming: false,
+      isPaused: false,
+    );
   }
 
-  Future<void> _onNewCameraSelected(CameraDescription? cameraDescription) async {
+  Future<void> _onNewCameraSelected(
+    CameraDescription? cameraDescription,
+  ) async {
     if (cameraDescription == null) return;
 
     // Cancel any pending init
@@ -671,7 +694,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
       // Multiscan throttle
       if (_activeScanMode == ScanMode.multiscan) {
         final DateTime now = DateTime.now();
-        if (now.difference(_lastFrameTime).inMilliseconds < widget.frameIntervalMs) {
+        if (now.difference(_lastFrameTime).inMilliseconds <
+            widget.frameIntervalMs) {
           return;
         }
         _lastFrameTime = now;
@@ -680,8 +704,10 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
       _isProcessing = true;
       try {
         final Rect? cropRect = _buildCropRect(image);
-        final bool? didSucceed =
-            await widget.onFrameCaptured?.call(image, cropRect);
+        final bool? didSucceed = await widget.onFrameCaptured?.call(
+          image,
+          cropRect,
+        );
 
         if (!mounted) return;
 
@@ -713,13 +739,15 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
         isAndroid() &&
         MediaQuery.of(context).orientation == Orientation.portrait;
 
-    final double horizontalOffset =
-        swap ? widget.verticalCropOffset : widget.horizontalCropOffset;
-    final double verticalOffset =
-        swap ? -widget.horizontalCropOffset : widget.verticalCropOffset;
+    final double horizontalOffset = swap
+        ? widget.verticalCropOffset
+        : widget.horizontalCropOffset;
+    final double verticalOffset = swap
+        ? -widget.horizontalCropOffset
+        : widget.verticalCropOffset;
 
-    final int cropSize =
-        (min(image.width, image.height) * widget.cropPercent).round();
+    final int cropSize = (min(image.width, image.height) * widget.cropPercent)
+        .round();
 
     final int cropLeft =
         ((image.width - cropSize) ~/ 2 +
@@ -774,8 +802,9 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
   }
 
   Future<void> _onGalleryButtonTapped() async {
-    final XFile? file =
-        await ImagePicker().pickImage(source: ImageSource.gallery);
+    final XFile? file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
     if (file != null) {
       await widget.onGalleryImageSelected?.call(file.path);
     }
@@ -819,6 +848,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
     final double cropSize = min(size.width, size.height) * widget.cropPercent;
     final Color effectiveBorderColor =
         widget.borderColor ?? Theme.of(context).primaryColor;
+    final Color effectiveScanLineColor =
+        widget.scanLineColor ?? Theme.of(context).primaryColor;
 
     return Stack(
       children: <Widget>[
@@ -854,7 +885,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
             _activeScanMode != ScanMode.multiscan)
           Container(
             decoration: ShapeDecoration(
-              shape: widget.scannerOverlay ??
+              shape:
+                  widget.scannerOverlay ??
                   CameraScannerOverlayBorder(
                     cutOutSize: cropSize,
                     horizontalOffset: widget.horizontalCropOffset,
@@ -881,7 +913,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
             cropSize: cropSize,
             horizontalOffset: widget.horizontalCropOffset,
             verticalOffset: widget.verticalCropOffset,
-            scanLineColor: widget.scanLineColor,
+            scanLineColor: effectiveScanLineColor,
           ),
 
         // ── 4. Pinch-to-zoom gesture detector ─────────────────────────────
@@ -953,35 +985,35 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
 
                     // ── Optional secondary button (mirrors zxing) ─────────
                     if (widget.onActionSecondButton != null &&
-                        widget.actionSecondButtonIcon != null)
-                      ...<Widget>[
-                        Container(
-                          // Push above dropdown if it sits at bottom-right
-                          margin: EdgeInsets.only(
-                            bottom: (widget.onScanModeChanged != null ||
-                                        widget.showScanModeToggle) &&
-                                    widget.scanModeAlignment ==
-                                        Alignment.bottomRight
-                                ? 55.0
-                                : 0,
-                          ),
-                          child: IconButton.filled(
-                            padding: widget.actionButtonsPadding,
-                            onPressed: widget.onActionSecondButton,
-                            icon: widget.actionSecondButtonIcon!,
-                            style: IconButton.styleFrom(
-                              backgroundColor:
-                                  widget.actionSecondButtonIconBackgroundColor ??
-                                  widget.actionButtonsBackgroundColor,
-                              shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    widget.actionButtonsBackgroundBorderRadius ??
-                                    BorderRadius.zero,
-                              ),
+                        widget.actionSecondButtonIcon != null) ...<Widget>[
+                      Container(
+                        // Push above dropdown if it sits at bottom-right
+                        margin: EdgeInsets.only(
+                          bottom:
+                              (widget.onScanModeChanged != null ||
+                                      widget.showScanModeToggle) &&
+                                  widget.scanModeAlignment ==
+                                      Alignment.bottomRight
+                              ? 55.0
+                              : 0,
+                        ),
+                        child: IconButton.filled(
+                          padding: widget.actionButtonsPadding,
+                          onPressed: widget.onActionSecondButton,
+                          icon: widget.actionSecondButtonIcon!,
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                widget.actionSecondButtonIconBackgroundColor ??
+                                widget.actionButtonsBackgroundColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  widget.actionButtonsBackgroundBorderRadius ??
+                                  BorderRadius.zero,
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1035,9 +1067,11 @@ class _ScanLinePositioned extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double left = (screenSize.width - cropSize) / 2 +
+    final double left =
+        (screenSize.width - cropSize) / 2 +
         horizontalOffset * (screenSize.width - cropSize) / 2;
-    final double top = (screenSize.height - cropSize) / 2 +
+    final double top =
+        (screenSize.height - cropSize) / 2 +
         verticalOffset * (screenSize.height - cropSize) / 2;
 
     return Positioned(

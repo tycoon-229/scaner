@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-/// A completely decoupled multi-scan result widget.
-///
-/// Accepts a list of Key-Value pairs (`List<MapEntry<String, String>>`):
-/// * `entry.key`   -> Barcode format / type name (e.g. 'QR_CODE', 'EAN_13')
-/// * `entry.value` -> Decoded text string
-///
-/// Can be reused across any barcode decoding library (ZXing, MLKit, MobileScanner, etc.).
 class ScanResultWidget extends StatelessWidget {
   const ScanResultWidget({
     super.key,
@@ -15,9 +9,6 @@ class ScanResultWidget extends StatelessWidget {
     this.onScanAgain,
   });
 
-  /// Factory constructor to convert a `Map<String, String>` directly into `MultiScanResultWidget`:
-  /// * `Key`   -> formatName
-  /// * `Value` -> decoded text
   factory ScanResultWidget.fromMap({
     Key? key,
     required Map<String, String> mapResults,
@@ -32,156 +23,357 @@ class ScanResultWidget extends StatelessWidget {
     );
   }
 
-  /// List of Key-Value pairs:
-  /// * `key`   = formatName (loại mã)
-  /// * `value` = decoded text (chuỗi giải mã)
   final List<MapEntry<String, String>> results;
   final int? durationMs;
   final VoidCallback? onScanAgain;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.only(top: 8.0, bottom: 6.0),
-              child: Text(
-                'Scan Results',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-            ),
-            if (durationMs != null && durationMs! > 0)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12.0),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.08),
-                  border: Border.all(color: Colors.orange, width: 1.5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.timer_outlined, color: Colors.orange, size: 18),
-                    const SizedBox(width: 6),
-                    Text(
-                      'TTFD: $durationMs ms',
-                      style: const TextStyle(
-                        color: Colors.orange,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: results.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Chưa có kết quả nào',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: results.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        final MapEntry<String, String> entry = results[index];
-                        final String formatName = entry.key;
-                        final String text = entry.value;
+    final Color primaryColor = Theme.of(context).primaryColor;
+    final int count = results.length;
 
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 6,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.orange.withValues(alpha: 0.1),
-                              child: Text(
-                                '${index + 1}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
-                                ),
-                              ),
-                            ),
-                            title: SelectableText(
-                              text,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                            subtitle: formatName.isNotEmpty
-                                ? Padding(
-                                    padding: const EdgeInsets.only(top: 4.0),
-                                    child: Row(
-                                      children: <Widget>[
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade200,
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            formatName,
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.black87,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : null,
-                          ),
-                        );
-                      },
-                    ),
+    return Column(
+      children: <Widget>[
+        _ResultHeader(
+          count: count,
+          durationMs: durationMs,
+          primaryColor: primaryColor,
+        ),
+        Expanded(
+          child: count == 0
+              ? _EmptyResultState(primaryColor: primaryColor)
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  itemCount: count,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (BuildContext context, int index) {
+                    return _ResultTile(
+                      index: index,
+                      entry: results[index],
+                      primaryColor: primaryColor,
+                    );
+                  },
+                ),
+        ),
+        if (onScanAgain != null)
+          _ResultActionBar(
+            primaryColor: primaryColor,
+            onScanAgain: onScanAgain!,
+          ),
+      ],
+    );
+  }
+}
+
+class _ResultHeader extends StatelessWidget {
+  const _ResultHeader({
+    required this.count,
+    required this.durationMs,
+    required this.primaryColor,
+  });
+
+  final int count;
+  final int? durationMs;
+  final Color primaryColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+      decoration: BoxDecoration(
+        color: primaryColor,
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Icon(Icons.fact_check_outlined, color: Colors.white),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Scan Results',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              _CountPill(count: count),
+            ],
+          ),
+          if (durationMs != null && durationMs! > 0) ...<Widget>[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.timer_outlined, color: Colors.white, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'Time to first decode: $durationMs ms',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CountPill extends StatelessWidget {
+  const _CountPill({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Text(
+        '$count ${count == 1 ? 'code' : 'codes'}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultTile extends StatelessWidget {
+  const _ResultTile({
+    required this.index,
+    required this.entry,
+    required this.primaryColor,
+  });
+
+  final int index;
+  final MapEntry<String, String> entry;
+  final Color primaryColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _IndexBadge(index: index, primaryColor: primaryColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  if (onScanAgain != null)
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.qr_code_scanner),
-                      label: const Text(
-                        'Scan Again',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                      onPressed: onScanAgain,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 14,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                      ),
+                  if (entry.key.isNotEmpty) _FormatBadge(text: entry.key),
+                  if (entry.key.isNotEmpty) const SizedBox(height: 8),
+                  SelectableText(
+                    entry.value,
+                    style: const TextStyle(
+                      color: Color(0xFF1F1F1F),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      height: 1.28,
                     ),
+                  ),
                 ],
               ),
             ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Copy result',
+              icon: const Icon(Icons.copy_rounded, size: 20),
+              color: Colors.black54,
+              onPressed: () => _copyResult(context, entry.value),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _copyResult(BuildContext context, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Result copied')));
+  }
+}
+
+class _IndexBadge extends StatelessWidget {
+  const _IndexBadge({required this.index, required this.primaryColor});
+
+  final int index;
+  final Color primaryColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: primaryColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '${index + 1}',
+        style: TextStyle(
+          color: primaryColor,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _FormatBadge extends StatelessWidget {
+  const _FormatBadge({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F2F2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.black87,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyResultState extends StatelessWidget {
+  const _EmptyResultState({required this.primaryColor});
+
+  final Color primaryColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            Icons.qr_code_scanner_rounded,
+            size: 48,
+            color: primaryColor.withValues(alpha: 0.65),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'No scan results yet',
+            style: TextStyle(
+              color: Colors.black54,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultActionBar extends StatelessWidget {
+  const _ResultActionBar({
+    required this.primaryColor,
+    required this.onScanAgain,
+  });
+
+  final Color primaryColor;
+  final VoidCallback onScanAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            top: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+          ),
+        ),
+        child: SizedBox(
+          height: 48,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            label: const Text(
+              'Scan Again',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            onPressed: onScanAgain,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ScanResultPage extends StatelessWidget {
+  const ScanResultPage({
+    super.key,
+    required this.results,
+    required this.onScanAgain,
+  });
+
+  final List<MapEntry<String, String>> results;
+  final VoidCallback onScanAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F7F7),
+      body: SafeArea(
+        child: ScanResultWidget(results: results, onScanAgain: onScanAgain),
       ),
     );
   }

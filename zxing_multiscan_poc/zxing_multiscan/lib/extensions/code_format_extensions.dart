@@ -67,42 +67,108 @@ extension CodeFormatNameExt on Code {
 
 extension DynamsoftFormatStringExt on String? {
   int? get toZxingFormat {
-    if (this == null || this!.isEmpty) return null;
+    if (this == null || this!.isEmpty) {
+      return null;
+    }
     final upper = this!.toUpperCase();
 
     // 1. Direct matches available in ZXing Format enum
-    if (upper.contains('MICRO_QR') || upper.contains('QR')) return Format.qrCode;
-    if (upper.contains('128')) return Format.code128;
-    if (upper.contains('39')) return Format.code39;
-    if (upper.contains('93')) return Format.code93;
-    if (upper.contains('CODABAR')) return Format.codabar;
-    if (upper.contains('ITF')) return Format.itf;
-    if (upper.contains('EAN_13') || upper.contains('EAN13')) return Format.ean13;
-    if (upper.contains('EAN_8') || upper.contains('EAN8')) return Format.ean8;
-    if (upper.contains('UPC_A') || upper.contains('UPCA')) return Format.upca;
-    if (upper.contains('UPC_E') || upper.contains('UPCE')) return Format.upce;
-    if (upper.contains('DATA_MATRIX') || upper.contains('DATAMATRIX')) return Format.dataMatrix;
-    if (upper.contains('MICRO_PDF') || upper.contains('PDF_417') || upper.contains('PDF417')) return Format.pdf417;
-    if (upper.contains('AZTEC')) return Format.aztec;
-    if (upper.contains('MAXICODE')) return Format.maxiCode;
-    if (upper.contains('GS1') || upper.contains('DATABAR') || upper.contains('RSS')) return Format.dataBar;
-    if (upper.contains('MSI')) return FormatMsi.msiCode;
+    if (upper.contains('MICRO_QR') || upper.contains('QR')) {
+      return Format.qrCode;
+    }
+    if (upper.contains('128')) {
+      return Format.code128;
+    }
+    if (upper.contains('39')) {
+      return Format.code39;
+    }
+    if (upper.contains('93')) {
+      return Format.code93;
+    }
+    if (upper.contains('CODABAR')) {
+      return Format.codabar;
+    }
+    if (upper.contains('ITF')) {
+      return Format.itf;
+    }
+    if (upper.contains('EAN_13') || upper.contains('EAN13')) {
+      return Format.ean13;
+    }
+    if (upper.contains('EAN_8') || upper.contains('EAN8')) {
+      return Format.ean8;
+    }
+    if (upper.contains('UPC_A') || upper.contains('UPCA')) {
+      return Format.upca;
+    }
+    if (upper.contains('UPC_E') || upper.contains('UPCE')) {
+      return Format.upce;
+    }
+    if (upper.contains('DATA_MATRIX') || upper.contains('DATAMATRIX')) {
+      return Format.dataMatrix;
+    }
+    if (upper.contains('MICRO_PDF') ||
+        upper.contains('PDF_417') ||
+        upper.contains('PDF417')) {
+      return Format.pdf417;
+    }
+    if (upper.contains('AZTEC')) {
+      return Format.aztec;
+    }
+    if (upper.contains('MAXICODE')) {
+      return Format.maxiCode;
+    }
+    if (upper.contains('GS1') ||
+        upper.contains('DATABAR') ||
+        upper.contains('RSS')) {
+      return Format.dataBar;
+    }
+    if (upper.contains('MSI')) {
+      return FormatMsi.msiCode;
+    }
 
     // 2. Formats supported by Dynamsoft but not in ZXing enum (CustomFormat mapping)
-    if (upper.contains('INDUSTRIAL')) return CustomFormat.industrial25;
-    if (upper.contains('MATRIX_25')) return CustomFormat.matrix25;
-    if (upper.contains('CODE_11') || upper.contains('CODE11')) return CustomFormat.code11;
-    if (upper.contains('CODE_32') || upper.contains('CODE32')) return CustomFormat.code32;
-    if (upper.contains('DOTCODE')) return CustomFormat.dotcode;
-    if (upper.contains('TELEPEN')) return CustomFormat.telepen;
-    if (upper.contains('PHARMACODE')) return CustomFormat.pharmacode;
-    if (upper.contains('PATCHCODE')) return CustomFormat.patchcode;
-    if (upper.contains('USPS') || upper.contains('INTELLIGENT_MAIL')) return CustomFormat.uspsIntelligentMail;
-    if (upper.contains('POSTNET')) return CustomFormat.postnet;
-    if (upper.contains('PLANET')) return CustomFormat.planet;
-    if (upper.contains('AUSTRALIAN')) return CustomFormat.australianPost;
-    if (upper.contains('RM4SCC')) return CustomFormat.rm4scc;
-    if (upper.contains('KIX')) return CustomFormat.kix;
+    if (upper.contains('INDUSTRIAL')) {
+      return CustomFormat.industrial25;
+    }
+    if (upper.contains('MATRIX_25')) {
+      return CustomFormat.matrix25;
+    }
+    if (upper.contains('CODE_11') || upper.contains('CODE11')) {
+      return CustomFormat.code11;
+    }
+    if (upper.contains('CODE_32') || upper.contains('CODE32')) {
+      return CustomFormat.code32;
+    }
+    if (upper.contains('DOTCODE')) {
+      return CustomFormat.dotcode;
+    }
+    if (upper.contains('TELEPEN')) {
+      return CustomFormat.telepen;
+    }
+    if (upper.contains('PHARMACODE')) {
+      return CustomFormat.pharmacode;
+    }
+    if (upper.contains('PATCHCODE')) {
+      return CustomFormat.patchcode;
+    }
+    if (upper.contains('USPS') || upper.contains('INTELLIGENT_MAIL')) {
+      return CustomFormat.uspsIntelligentMail;
+    }
+    if (upper.contains('POSTNET')) {
+      return CustomFormat.postnet;
+    }
+    if (upper.contains('PLANET')) {
+      return CustomFormat.planet;
+    }
+    if (upper.contains('AUSTRALIAN')) {
+      return CustomFormat.australianPost;
+    }
+    if (upper.contains('RM4SCC')) {
+      return CustomFormat.rm4scc;
+    }
+    if (upper.contains('KIX')) {
+      return CustomFormat.kix;
+    }
 
     return null;
   }

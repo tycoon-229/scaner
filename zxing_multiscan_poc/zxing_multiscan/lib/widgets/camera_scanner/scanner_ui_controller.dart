@@ -57,7 +57,10 @@ class ScannerUIController extends ChangeNotifier {
   }
 
   /// Called by the widget whenever the streaming state changes.
-  void updateStreamingState({required bool isStreaming, required bool isPaused}) {
+  void updateStreamingState({
+    required bool isStreaming,
+    required bool isPaused,
+  }) {
     _isStreaming = isStreaming;
     _isPaused = isPaused;
     notifyListeners();
@@ -123,8 +126,9 @@ class ScannerUIController extends ChangeNotifier {
     final cam = _cameraController;
     if (cam == null || !cam.value.isInitialized) return;
     try {
-      final mode =
-          cam.value.flashMode == FlashMode.torch ? FlashMode.off : FlashMode.torch;
+      final mode = cam.value.flashMode == FlashMode.torch
+          ? FlashMode.off
+          : FlashMode.torch;
       await cam.setFlashMode(mode);
       notifyListeners();
     } catch (e) {

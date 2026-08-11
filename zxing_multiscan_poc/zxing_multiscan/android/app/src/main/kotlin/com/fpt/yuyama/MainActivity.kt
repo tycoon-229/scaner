@@ -10,7 +10,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : FlutterFragmentActivity() {
 
-    private val CHANNEL = "com.example/msi_scanner"
+    private val CHANNEL = "com.fpt.yuyama/msi_scanner"
 
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 

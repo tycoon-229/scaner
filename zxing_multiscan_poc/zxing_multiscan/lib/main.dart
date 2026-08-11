@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
-import 'package:flutter_zxing_example/widgets/scandit_tab_widget.dart';
-import 'package:flutter_zxing_example/widgets/zxing_tab_widget.dart';
+import 'package:flutter_zxing_example/theme/app_theme.dart';
+import 'package:flutter_zxing_example/tabs/dynamsoft_tab.dart';
+import 'package:flutter_zxing_example/tabs/scandit_tab.dart';
+import 'package:flutter_zxing_example/tabs/zxing_tab.dart';
 import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode.dart';
-
-import 'widgets/dynamsoft_tab_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,10 +20,11 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      title: 'Barcode Scanner Comparison',
+    return MaterialApp(
+      title: 'Barcode Scanner',
       debugShowCheckedModeBanner: false,
-      home: DemoPage(),
+      theme: AppTheme.light(),
+      home: const DemoPage(),
     );
   }
 }
@@ -37,7 +38,8 @@ class DemoPage extends StatelessWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const TabBar(
+          toolbarHeight: 0,
+          bottom: const TabBar(
             tabs: [
               Tab(text: 'ZXing'),
               Tab(text: 'Dynamsoft'),
@@ -45,14 +47,7 @@ class DemoPage extends StatelessWidget {
             ],
           ),
         ),
-        body: TabBarView(
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            ZxingTab(),
-            DynamsoftTab(),
-            ScanditTab(),
-          ],
-        ),
+        body: TabBarView(children: [ZxingTab(), DynamsoftTab(), ScanditTab()]),
       ),
     );
   }
