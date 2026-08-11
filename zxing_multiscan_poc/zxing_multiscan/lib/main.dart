@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
+import 'package:flutter_zxing_example/widgets/scandit_tab_widget.dart';
 import 'package:flutter_zxing_example/widgets/zxing_tab_widget.dart';
 import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode.dart';
 
 import 'widgets/dynamsoft_tab_widget.dart';
-import 'widgets/scandit_tab_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,7 +50,7 @@ class DemoPage extends StatelessWidget {
           children: [
             ZxingTab(),
             DynamsoftTab(),
-            const ScanditTabWidget(),
+            ScanditTab(),
           ],
         ),
       ),

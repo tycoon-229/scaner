@@ -7,7 +7,6 @@ environment:
   sdk: '>=3.11.0 <4.0.0'
 
 dependencies:
-  dynamsoft_barcode_reader_bundle_flutter: ^11.4.3000
   flutter:
     sdk: flutter
   flutter_zxing: ^2.3.0

@@ -97,14 +97,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.5+4"
-  dynamsoft_barcode_reader_bundle_flutter:
-    dependency: "direct main"
-    description:
-      name: dynamsoft_barcode_reader_bundle_flutter
-      sha256: "16527468ded8e120e4ac71f1a4ab66fd34ce937cb59a70b3e348aa67f9c713d6"
-      url: "https://pub.dev"
-    source: hosted
-    version: "11.4.3000"
   dynamsoft_capture_vision_flutter:
     dependency: "direct main"
     description:
