@@ -14,6 +14,8 @@ dependencies:
   dynamsoft_capture_vision_flutter: ^3.4.3000
   scandit_flutter_datacapture_barcode: ^8.5.2
   scandit_flutter_datacapture_core: ^8.5.2
+  camera: ">=0.10.5 <0.13.0"
+  image_picker: ^1.0.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0

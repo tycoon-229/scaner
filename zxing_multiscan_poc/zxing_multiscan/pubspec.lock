@@ -26,7 +26,7 @@ packages:
     source: hosted
     version: "2.1.2"
   camera:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: camera
       sha256: "558230d6ce6ccea856b32d390db7e7b557adf4d9320aa614481bd3f2f608953f"
@@ -106,7 +106,7 @@ packages:
     source: hosted
     version: "11.4.3000"
   dynamsoft_capture_vision_flutter:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dynamsoft_capture_vision_flutter
       sha256: cad210abd7d68b2909fedc563f9025600fab57e9672c2cb87fec51e16404af64
@@ -243,7 +243,7 @@ packages:
     source: hosted
     version: "4.9.1"
   image_picker:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: image_picker
       sha256: d8402284df184bc05f4a2210c6c23983b0720f4cd87cbd05c5390a78af602667

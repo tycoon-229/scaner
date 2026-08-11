@@ -57,6 +57,7 @@ typedef GalleryImageCallback = Future<void> Function(String path);
 class CameraScannerWidget extends StatefulWidget {
   const CameraScannerWidget({
     super.key,
+    this.tabIndex,
     // ── Core callbacks ─────────────────────────────────────────────────────
     this.onFrameCaptured,
     this.onControllerCreated,
@@ -87,9 +88,9 @@ class CameraScannerWidget extends StatefulWidget {
     this.horizontalCropOffset = 0.0,
     this.verticalCropOffset = 0.0,
     // ── Controls visibility ────────────────────────────────────────────────
-    this.showFlashlight = true,
-    this.showToggleCamera = true,
-    this.showGallery = true,
+    this.showFlashlight = false,
+    this.showToggleCamera = false,
+    this.showGallery = false,
     // ── Control icons (match zxing defaults exactly) ───────────────────────
     this.flashOnIcon = const Icon(Icons.flash_on),
     this.flashOffIcon = const Icon(Icons.flash_off),
@@ -277,6 +278,11 @@ class CameraScannerWidget extends StatefulWidget {
 
   // ── Loading placeholder ─────────────────────────────────────────────────────
 
+  /// Optional tab index when placed inside a TabBarView / DefaultTabController.
+  /// When provided, the camera will automatically stop/dispose when switching away
+  /// and restart when switching to this tab.
+  final int? tabIndex;
+
   /// Widget shown while the camera is initialising. Defaults to a black box.
   final Widget loading;
 
@@ -299,6 +305,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
   List<CameraDescription> _cameras = <CameraDescription>[];
   CameraDescription? _selectedCamera;
   CameraController? _controller;
+  TabController? _tabController;
 
   bool _isCameraOn = false;
   bool _isFlashAvailable = true;
@@ -346,6 +353,37 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
     _initStateAsync();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.tabIndex != null) {
+      final TabController? newController = DefaultTabController.maybeOf(context);
+      if (_tabController != newController) {
+        _tabController?.removeListener(_onTabChanged);
+        _tabController = newController;
+        _tabController?.addListener(_onTabChanged);
+      }
+    }
+  }
+
+  void _onTabChanged() {
+    if (_tabController == null || widget.tabIndex == null) return;
+    final bool isCurrentTab = _tabController!.index == widget.tabIndex;
+    if (isCurrentTab) {
+      if (!_isCameraOn && !_isInitializing) {
+        _onNewCameraSelected(
+          _selectedCamera ?? (_cameras.isNotEmpty ? _cameras.first : null),
+        );
+      }
+    } else {
+      if (_isCameraOn || _controller != null) {
+        _disposeController().then((_) {
+          if (mounted) setState(() {});
+        });
+      }
+    }
+  }
+
   Future<void> _initStateAsync() async {
     try {
       final List<CameraDescription> cameras = await availableCameras();
@@ -357,6 +395,14 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
           (CameraDescription c) => c.lensDirection == widget.lensDirection,
           orElse: () => cameras.first,
         );
+
+        final TabController? tabController = DefaultTabController.maybeOf(context);
+        if (widget.tabIndex != null &&
+            tabController != null &&
+            tabController.index != widget.tabIndex) {
+          return;
+        }
+
         await _onNewCameraSelected(_selectedCamera);
       }
     } catch (e) {
@@ -389,6 +435,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
 
   @override
   void dispose() {
+    _tabController?.removeListener(_onTabChanged);
     // Cancel any ongoing initialization
     if (_initializationCompleter != null &&
         !_initializationCompleter!.isCompleted) {

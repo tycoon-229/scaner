@@ -4,7 +4,6 @@ import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import '../multiscan_widget.dart';
-import '../scan_widget.dart';
 import 'camera_scanner.dart';
 
 /// Demo page showing how to wire [CameraScannerWidget] to [flutter_zxing] decoder.
@@ -204,11 +203,14 @@ class _ZxingTabState extends State<ZxingTab>
     if (_scanMode == ScanMode.single && result != null && result?.isValid == true) {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: Container(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: ScanWidget(
-            resultText: result?.text,
-            resultFormatName: result?.format?.name,
+        body: SafeArea(
+          child: MultiScanWidget(
+            results: <MapEntry<String, String>>[
+              MapEntry<String, String>(
+                result?.format?.name ?? '',
+                result?.text ?? '',
+              ),
+            ],
             onScanAgain: () {
               setState(() {
                 result = null;
@@ -246,6 +248,7 @@ class _ZxingTabState extends State<ZxingTab>
         children: <Widget>[
           // ── Camera Scanner ──────────────────────────────────────────────
           CameraScannerWidget(
+            tabIndex: 0,
             controller: _scannerController,
             scanMode: _scanMode,
             scanDelay: const Duration(milliseconds: 50),

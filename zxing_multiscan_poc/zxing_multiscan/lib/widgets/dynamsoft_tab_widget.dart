@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'multiscan_widget.dart';
-import 'scan_widget.dart';
 import 'camera_scanner/camera_scanner.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,29 +96,6 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   /// [CameraScannerWidget]'s own _isProcessing guard).
   bool _isCaptureRunning = false;
 
-  /// Selected preset template — driven by Dropdown overlay on camera UI.
-  String _selectedTemplate = EnumPresetTemplate.readBarcodesSpeedFirst;
-
-  static const List<Map<String, String>> _templateOptions =
-  <Map<String, String>>[
-    <String, String>{
-      'label': 'Mặc định',
-      'value': EnumPresetTemplate.readBarcodes
-    },
-    <String, String>{
-      'label': 'Ưu tiên tốc độ',
-      'value': EnumPresetTemplate.readBarcodesSpeedFirst
-    },
-    <String, String>{
-      'label': 'Ưu tiên độ chính xác',
-      'value': EnumPresetTemplate.readBarcodesReadRateFirst
-    },
-    <String, String>{
-      'label': 'Đơn mã',
-      'value': EnumPresetTemplate.readSingleBarcode
-    },
-  ];
-
   // ──────────────────────────────────────────────────────────────────────────
   // Lifecycle
   // ──────────────────────────────────────────────────────────────────────────
@@ -184,7 +160,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       final CapturedResult result =
       await CaptureVisionRouter.instance.capture(
         imageData,
-        _selectedTemplate,
+        EnumPresetTemplate.readBarcodesReadRateFirst,
       );
 
       // 3. Extract barcodes
@@ -329,11 +305,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     if (_scanMode == ScanMode.single && _singleResult != null) {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: Container(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: ScanWidget(
-            resultText: _singleResult!.value,
-            resultFormatName: _singleResult!.key,
+        body: SafeArea(
+          child: MultiScanWidget(
+            results: <MapEntry<String, String>>[_singleResult!],
             onScanAgain: () {
               setState(() => _singleResult = null);
               _resumeScan();
@@ -369,6 +343,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         children: <Widget>[
           // ── Camera Scanner ─────────────────────────────────────────────────
           CameraScannerWidget(
+            tabIndex: 1,
             controller: _scannerController,
             scanMode: _scanMode,
 
@@ -399,44 +374,6 @@ class _DynamsoftTabState extends State<DynamsoftTab>
             scanModeAlignment: Alignment.bottomRight,
             cropPercent: _scanMode == ScanMode.single ? 0.5 : 0,
             overlayColor: Colors.black45,
-
-            // ── Flutter Overlay: Template Dropdown ────────────────────────
-            overlayWidget: Positioned(
-              bottom: 140,
-              right: 12,
-              child: Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.75),
-                  borderRadius: BorderRadius.circular(20),
-                  border:
-                  Border.all(color: Colors.orange.shade400, width: 1.5),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedTemplate,
-                    dropdownColor: Colors.black87,
-                    iconEnabledColor: Colors.orange,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                    isDense: true,
-                    items: _templateOptions
-                        .map(
-                          (Map<String, String> opt) => DropdownMenuItem<String>(
-                        value: opt['value'],
-                        child: Text(opt['label']!),
-                      ),
-                    )
-                        .toList(),
-                    onChanged: (String? val) {
-                      if (val != null) {
-                        setState(() => _selectedTemplate = val);
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ),
           ),
 
           // ── Multi Scan: floating result button ─────────────────────────────
