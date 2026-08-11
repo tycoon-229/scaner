@@ -344,6 +344,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       resultCount: _scannedEntries.length,
       onShowResults: _showMultiResults,
       onModeChanged: _changeMode,
+      onGalleryImageSelected: _handleGalleryImage,
     );
   }
 

@@ -103,12 +103,14 @@ class ScanModeBottomControls extends StatelessWidget {
     required this.resultCount,
     required this.onShowResults,
     required this.onModeChanged,
+    this.onPickImage,
   });
 
   final ScanMode scanMode;
   final int resultCount;
   final VoidCallback onShowResults;
   final ValueChanged<ScanMode> onModeChanged;
+  final VoidCallback? onPickImage;
 
   @override
   Widget build(BuildContext context) {
@@ -128,13 +130,47 @@ class ScanModeBottomControls extends StatelessWidget {
             Positioned(
               right: 20,
               bottom: 24,
-              child: ScanModeSelector(
-                value: scanMode,
-                onChanged: onModeChanged,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  if (onPickImage != null) ...<Widget>[
+                    ImagePickerButton(onPressed: onPickImage!),
+                    const SizedBox(width: 10),
+                  ],
+                  ScanModeSelector(value: scanMode, onChanged: onModeChanged),
+                ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ImagePickerButton extends StatelessWidget {
+  const ImagePickerButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: const Color.fromRGBO(0, 0, 0, 0.7),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white24),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3)),
+        ],
+      ),
+      child: IconButton(
+        tooltip: 'Pick image',
+        color: Colors.white,
+        icon: const Icon(Icons.photo_library_outlined),
+        onPressed: onPressed,
       ),
     );
   }

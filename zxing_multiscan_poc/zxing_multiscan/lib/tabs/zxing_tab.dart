@@ -260,6 +260,7 @@ class _ZxingTabState extends State<ZxingTab>
       resultCount: _scannedEntries.length,
       onShowResults: _showMultiResults,
       onModeChanged: _changeMode,
+      onGalleryImageSelected: _handleGalleryImage,
       showResumeButton:
           _scanMode == ScanMode.single &&
           _scannerController.isPaused &&

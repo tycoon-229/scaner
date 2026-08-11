@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:flutter_zxing_example/widgets/camera_scanner/scan_mode.dart';
 import 'package:flutter_zxing_example/widgets/scan_mode_controls.dart';
@@ -14,6 +15,7 @@ class ScannerLiveScaffold extends StatelessWidget {
     this.overlayChildren = const <Widget>[],
     this.showResumeButton = false,
     this.onResumeScan,
+    this.onGalleryImageSelected,
   });
 
   final Widget preview;
@@ -24,6 +26,7 @@ class ScannerLiveScaffold extends StatelessWidget {
   final List<Widget> overlayChildren;
   final bool showResumeButton;
   final VoidCallback? onResumeScan;
+  final Future<void> Function(String path)? onGalleryImageSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -40,10 +43,21 @@ class ScannerLiveScaffold extends StatelessWidget {
             resultCount: resultCount,
             onShowResults: onShowResults,
             onModeChanged: onModeChanged,
+            onPickImage: onGalleryImageSelected == null
+                ? null
+                : () => _pickImage(context),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _pickImage(BuildContext context) async {
+    final XFile? image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
+    if (image == null) return;
+    await onGalleryImageSelected?.call(image.path);
   }
 }
 
