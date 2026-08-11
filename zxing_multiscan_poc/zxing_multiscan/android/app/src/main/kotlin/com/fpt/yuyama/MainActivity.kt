@@ -1,4 +1,4 @@
-package com.markosyan.flutter_zxing_example
+package com.fpt.yuyama
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
