@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_zxing_example/config/license_keys.dart';
 import 'package:flutter_zxing_example/utils/scan_entries.dart';
+import 'package:flutter_zxing_example/utils/scan_monitor.dart';
 import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
 import 'package:flutter_zxing_example/widgets/camera_scanner/camera_scanner.dart';
 import 'package:flutter_zxing_example/widgets/scanner_camera_preview.dart';
@@ -84,6 +85,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   bool get wantKeepAlive => true;
 
   final ScannerUIController _scannerController = ScannerUIController();
+  final ScanMonitor _monitor = ScanMonitor(engineName: 'Dynamsoft');
 
   /// Key-Value pairs list for multi scan results:
   /// * `entry.key`   -> formatName (e.g. 'QR_CODE', 'EAN_13')
@@ -108,6 +110,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   void initState() {
     super.initState();
     _scannerController.addListener(_onControllerChanged);
+    _monitor.startSession(modeLabel: _modeLabel);
     _initDynamsoft();
   }
 
@@ -140,6 +143,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         _singleResult = null;
         _clearMultiResults();
       });
+      _monitor.startSession(modeLabel: _modeLabel);
     }
   }
 
@@ -151,6 +155,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     // Extra guard: skip if a capture is already in-flight
     if (_isCaptureRunning) return false;
     _isCaptureRunning = true;
+    final ScanMonitorOperation operation = _monitor.startDecode(
+      source: ScanMonitorSource.liveCamera,
+      modeLabel: _modeLabel,
+    );
+    bool hasDecodedCode = false;
 
     try {
       // 1. Build ImageData (YUV conversion runs in isolate → non-blocking)
@@ -168,9 +177,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
       if (barcodes.isEmpty) return false;
 
+      hasDecodedCode = true;
       if (_scanMode == ScanMode.single) {
         // Single: take first → show result → pause camera
         final BarcodeResultItem first = barcodes.first;
+        _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
             _singleResult = MapEntry<String, String>(
@@ -183,6 +194,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       } else {
         // Multi: accumulate unique barcodes
         bool hasNew = false;
+        int newCodeCount = 0;
+        int duplicateCodeCount = 0;
         for (final BarcodeResultItem b in barcodes) {
           final MapEntry<String, String> e = MapEntry<String, String>(
             b.formatString,
@@ -190,8 +203,15 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           );
           if (addUniqueScanEntry(_scannedEntries, e)) {
             hasNew = true;
+            newCodeCount++;
+          } else {
+            duplicateCodeCount++;
           }
         }
+        _monitor.recordResults(
+          uniqueCount: newCodeCount,
+          duplicateCount: duplicateCodeCount,
+        );
         if (hasNew && mounted) setState(() {});
         return false;
       }
@@ -199,6 +219,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       debugPrint('[DynamsoftTab] capture error: $e');
       return false;
     } finally {
+      operation.finish(success: hasDecodedCode);
       _isCaptureRunning = false;
     }
   }
@@ -210,6 +231,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   Future<void> _handleGalleryImage(String path) async {
     // Stop the live stream first so CaptureVisionRouter is free for a file decode.
     await _scannerController.pauseStream();
+    _monitor.startSession(modeLabel: '$_modeLabel / Gallery');
+    final ScanMonitorOperation operation = _monitor.startDecode(
+      source: ScanMonitorSource.galleryImage,
+      modeLabel: '$_modeLabel / Gallery',
+    );
+    bool hasDecodedCode = false;
 
     try {
       // captureFile works on an image path — no ImageData conversion needed.
@@ -226,6 +253,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       if (!mounted) return;
 
       if (barcodes.isNotEmpty) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
         setState(() {
           _singleResult = ScanEntry(
             barcodes.first.formatString,
@@ -241,6 +270,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       debugPrint('[DynamsoftTab] gallery decode error: $e');
       if (mounted) showScannerMessage(context, 'Failed to read image: $e');
       _resumeScan();
+    } finally {
+      operation.finish(success: hasDecodedCode);
     }
   }
 
@@ -306,8 +337,10 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     if (_scanMode == ScanMode.single && _singleResult != null) {
       return ScanResultPage(
         results: <ScanEntry>[_singleResult!],
+        monitorSnapshot: _monitor.snapshot(resultCount: 1),
         onScanAgain: () {
           setState(() => _singleResult = null);
+          _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
         },
       );
@@ -317,8 +350,10 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
       return ScanResultPage(
         results: _scannedEntries,
+        monitorSnapshot: _monitor.snapshot(resultCount: _scannedEntries.length),
         onScanAgain: () {
           setState(_clearMultiResults);
+          _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
         },
       );
@@ -364,6 +399,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       _singleResult = null;
       _clearMultiResults();
     });
+    _monitor.startSession(modeLabel: _modeLabel);
   }
 
   void _clearMultiResults() {
@@ -373,5 +409,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   void _showMultiResults() {
     setState(() => _showMultiResultScreen = true);
+  }
+
+  String get _modeLabel {
+    return _scanMode == ScanMode.single ? 'Single Code' : 'Multi Code';
   }
 }

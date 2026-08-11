@@ -4,8 +4,9 @@ import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import 'package:flutter_zxing_example/extensions/code_format_extensions.dart';
-import 'package:flutter_zxing_example/services/msi_scanner_service.dart';
+import 'package:flutter_zxing_example/services/msi_scan_coordinator.dart';
 import 'package:flutter_zxing_example/utils/scan_entries.dart';
+import 'package:flutter_zxing_example/utils/scan_monitor.dart';
 import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
 import 'package:flutter_zxing_example/widgets/camera_scanner/camera_scanner.dart';
 import 'package:flutter_zxing_example/widgets/scanner_camera_preview.dart';
@@ -34,12 +35,10 @@ class _ZxingTabState extends State<ZxingTab>
   bool get wantKeepAlive => true;
 
   final ScannerUIController _scannerController = ScannerUIController();
+  final ScanMonitor _monitor = ScanMonitor(engineName: 'ZXing');
+  final MsiScanCoordinator _msiScanCoordinator = MsiScanCoordinator();
 
   Code? result;
-  bool _isProcessingMsiFallback = false;
-  DateTime _lastMsiFallbackAttempt = DateTime.fromMillisecondsSinceEpoch(0);
-  String? _lastMsiCandidate;
-  int _msiCandidateMatchCount = 0;
 
   /// Key-Value pairs list for multi scan results:
   /// * `entry.key`   -> formatName (e.g. 'QR_CODE', 'EAN_13')
@@ -53,6 +52,7 @@ class _ZxingTabState extends State<ZxingTab>
   void initState() {
     super.initState();
     _scannerController.addListener(_onControllerChanged);
+    _monitor.startSession(modeLabel: _modeLabel);
     zx.startCameraProcessing();
   }
 
@@ -65,6 +65,8 @@ class _ZxingTabState extends State<ZxingTab>
         result = null;
         _clearMultiResults();
       });
+      _msiScanCoordinator.reset();
+      _monitor.startSession(modeLabel: _modeLabel);
     }
   }
 
@@ -103,6 +105,11 @@ class _ZxingTabState extends State<ZxingTab>
   Future<bool?> _handleFrame(CameraImage image, Rect? cropRect) async {
     // Ensure C++ isolate worker is fully started before sending frame
     await zx.startCameraProcessing();
+    final ScanMonitorOperation operation = _monitor.startDecode(
+      source: ScanMonitorSource.liveCamera,
+      modeLabel: _modeLabel,
+    );
+    bool hasDecodedCode = false;
 
     final int cropLeft = cropRect?.left.round() ?? 0;
     final int cropTop = cropRect?.top.round() ?? 0;
@@ -125,8 +132,8 @@ class _ZxingTabState extends State<ZxingTab>
       isMultiScan: _scanMode == ScanMode.multiscan,
     );
 
-    if (_scanMode == ScanMode.multiscan) {
-      try {
+    try {
+      if (_scanMode == ScanMode.multiscan) {
         final Codes res = await zx
             .processCameraImageMulti(image, params)
             .timeout(
@@ -136,33 +143,40 @@ class _ZxingTabState extends State<ZxingTab>
 
         if (res.codes.isNotEmpty) {
           bool hasNewCode = false;
+          int newCodeCount = 0;
+          int duplicateCodeCount = 0;
           for (final Code c in res.codes) {
             if (c.isValid && c.text != null && c.text!.isNotEmpty) {
+              hasDecodedCode = true;
               final String key = c.format?.name ?? 'UNKNOWN';
               final String value = c.text!;
 
               if (addUniqueScanEntry(_scannedEntries, ScanEntry(key, value))) {
                 hasNewCode = true;
+                newCodeCount++;
+              } else {
+                duplicateCodeCount++;
               }
             }
           }
+          _monitor.recordResults(
+            uniqueCount: newCodeCount,
+            duplicateCount: duplicateCodeCount,
+          );
           if (hasNewCode && mounted) {
             setState(() {});
           }
         }
-      } catch (e) {
-        debugPrint('processCameraImageMulti error: $e');
-      }
-    } else {
-      try {
+      } else {
         final Code res = await zx
             .processCameraImage(image, params)
             .timeout(
               const Duration(milliseconds: 1000),
               onTimeout: () => Code(),
             );
-        _processMsiScanFallback(res);
         if (res.isValid) {
+          hasDecodedCode = true;
+          _monitor.recordResults(uniqueCount: 1);
           if (mounted) {
             setState(() {
               result = res;
@@ -170,9 +184,20 @@ class _ZxingTabState extends State<ZxingTab>
           }
           return true; // Single scan success -> pause stream
         }
-      } catch (e) {
-        debugPrint('processCameraImage error: $e');
+        final bool hasMsiFallbackResult = await _processMsiScanFallback(res);
+        if (hasMsiFallbackResult) {
+          hasDecodedCode = true;
+          return true;
+        }
       }
+    } catch (e) {
+      debugPrint(
+        _scanMode == ScanMode.multiscan
+            ? 'processCameraImageMulti error: $e'
+            : 'processCameraImage error: $e',
+      );
+    } finally {
+      operation.finish(success: hasDecodedCode);
     }
 
     return false;
@@ -183,6 +208,13 @@ class _ZxingTabState extends State<ZxingTab>
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _handleGalleryImage(String path) async {
+    _monitor.startSession(modeLabel: '$_modeLabel / Gallery');
+    final ScanMonitorOperation operation = _monitor.startDecode(
+      source: ScanMonitorSource.galleryImage,
+      modeLabel: '$_modeLabel / Gallery',
+    );
+    bool hasDecodedCode = false;
+
     final DecodeParams params = DecodeParams(
       imageFormat: zxing.ImageFormat.rgb,
       format: Format.any,
@@ -190,17 +222,36 @@ class _ZxingTabState extends State<ZxingTab>
       tryInverted: true,
     );
 
-    final Code res = await zx.readBarcodeImagePathString(path, params);
-    if (res.isValid) {
-      if (mounted) {
-        setState(() {
-          result = res;
-        });
+    try {
+      final Code res = await zx.readBarcodeImagePathString(path, params);
+      if (res.isValid) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
+        if (mounted) {
+          setState(() {
+            result = res;
+          });
+        }
+      } else {
+        final bool hasMsiResult = await _processMsiImageFileFallback(path);
+        if (hasMsiResult) {
+          hasDecodedCode = true;
+          _monitor.recordResults(uniqueCount: 1);
+        } else if (mounted) {
+          showScannerMessage(context, 'No valid code found in the image');
+        }
       }
-    } else {
-      if (mounted) {
-        showScannerMessage(context, 'No valid code found in the image');
+    } catch (e) {
+      debugPrint('readBarcodeImagePathString error: $e');
+      final bool hasMsiResult = await _processMsiImageFileFallback(path);
+      if (hasMsiResult) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
+      } else if (mounted) {
+        showScannerMessage(context, 'Failed to read image: $e');
       }
+    } finally {
+      operation.finish(success: hasDecodedCode);
     }
   }
 
@@ -220,10 +271,13 @@ class _ZxingTabState extends State<ZxingTab>
         results: <ScanEntry>[
           ScanEntry(result?.format?.name ?? '', result?.text ?? ''),
         ],
+        monitorSnapshot: _monitor.snapshot(resultCount: 1),
         onScanAgain: () {
           setState(() {
             result = null;
           });
+          _msiScanCoordinator.reset();
+          _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
         },
       );
@@ -233,8 +287,11 @@ class _ZxingTabState extends State<ZxingTab>
     if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
       return ScanResultPage(
         results: _scannedEntries,
+        monitorSnapshot: _monitor.snapshot(resultCount: _scannedEntries.length),
         onScanAgain: () {
           setState(_clearMultiResults);
+          _msiScanCoordinator.reset();
+          _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
         },
       );
@@ -269,47 +326,39 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
-  Future<void> _processMsiScanFallback(Code? code) async {
-    final now = DateTime.now();
+  Future<bool> _processMsiScanFallback(Code? code) async {
+    if (code == null) return false;
 
-    if (now.difference(_lastMsiFallbackAttempt).inMilliseconds < 150) return;
+    final MsiScanCandidate? candidate = await _msiScanCoordinator
+        .scanProcessedImage(code);
+    if (candidate == null || !mounted) return false;
 
-    if (code?.imageBytes != null && code!.imageBytes!.isNotEmpty) {
-      if (_isProcessingMsiFallback) return;
+    _monitor.recordResults(uniqueCount: 1);
+    setState(() {
+      result = _createMsiCode(candidate);
+    });
+    return true;
+  }
 
-      _lastMsiFallbackAttempt = now;
-      _isProcessingMsiFallback = true;
+  Future<bool> _processMsiImageFileFallback(String path) async {
+    final MsiScanCandidate? candidate = await _msiScanCoordinator.scanImageFile(
+      path,
+    );
+    if (candidate == null || !mounted) return false;
 
-      final String? msiCode = await MsiScannerService.decodeMsiYuv(
-        code.imageBytes!,
-        imageWidth: code.imageWidth ?? 0,
-        imageHeight: code.imageHeight ?? 0,
-      );
+    setState(() {
+      result = _createMsiCode(candidate);
+    });
+    return true;
+  }
 
-      if (mounted && msiCode != null && msiCode.isNotEmpty) {
-        if (msiCode == _lastMsiCandidate) {
-          _msiCandidateMatchCount++;
-        } else {
-          _lastMsiCandidate = msiCode;
-          _msiCandidateMatchCount = 1;
-        }
-
-        if (_msiCandidateMatchCount >= 2) {
-          _lastMsiCandidate = null;
-          _msiCandidateMatchCount = 0;
-
-          setState(() {
-            result = Code(
-              text: msiCode,
-              format: FormatMsi.msiCode,
-              isValid: true,
-              duration: now.difference(_lastMsiFallbackAttempt).inMilliseconds,
-            );
-          });
-        }
-      }
-      _isProcessingMsiFallback = false;
-    }
+  Code _createMsiCode(MsiScanCandidate candidate) {
+    return Code(
+      text: candidate.text,
+      format: FormatMsi.msiCode,
+      isValid: true,
+      duration: candidate.durationMs,
+    );
   }
 
   void _resumeScan() {
@@ -318,12 +367,18 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
+  void _resetScanState() {
+    _msiScanCoordinator.reset();
+    _monitor.startSession(modeLabel: _modeLabel);
+  }
+
   void _changeMode(ScanMode mode) {
     setState(() {
       _scanMode = mode;
       result = null;
       _clearMultiResults();
     });
+    _resetScanState();
   }
 
   void _clearMultiResults() {
@@ -333,5 +388,9 @@ class _ZxingTabState extends State<ZxingTab>
 
   void _showMultiResults() {
     setState(() => _showMultiResultScreen = true);
+  }
+
+  String get _modeLabel {
+    return _scanMode == ScanMode.single ? 'Single Code' : 'Multi Code';
   }
 }

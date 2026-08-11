@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "POC MultiScan",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug"
+    },
+    {
+      "name": "POC MultiScan Preview",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--dart-define",
+        "PREVIEW_SCAN_RESULTS=true"
+      ]
+    }
+  ]
+}

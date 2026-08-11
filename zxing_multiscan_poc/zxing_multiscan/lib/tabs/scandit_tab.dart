@@ -7,6 +7,7 @@ import 'package:scandit_flutter_datacapture_core/scandit_flutter_datacapture_cor
 
 import 'package:flutter_zxing_example/config/license_keys.dart';
 import 'package:flutter_zxing_example/utils/scan_entries.dart';
+import 'package:flutter_zxing_example/utils/scan_monitor.dart';
 import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
 import 'package:flutter_zxing_example/widgets/camera_scanner/scan_mode.dart';
 import 'package:flutter_zxing_example/widgets/camera_scanner/scanner_overlay.dart';
@@ -91,6 +92,7 @@ class _ScanditTabState extends State<ScanditTab>
   String? _initError;
 
   final List<ScanEntry> _scannedEntries = <ScanEntry>[];
+  final ScanMonitor _monitor = ScanMonitor(engineName: 'Scandit');
   ScanEntry? _singleResult;
 
   ScanMode _scanMode = ScanMode.single;
@@ -100,6 +102,7 @@ class _ScanditTabState extends State<ScanditTab>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _monitor.startSession(modeLabel: _modeLabel);
     _initScandit();
   }
 
@@ -215,6 +218,11 @@ class _ScanditTabState extends State<ScanditTab>
           .replaceAll('Symbology.', '')
           .toUpperCase();
       if (text.isNotEmpty) {
+        _monitor.recordNativeEvent(
+          uniqueCount: 1,
+          duplicateCount: 0,
+          modeLabel: _modeLabel,
+        );
         setState(() {
           _singleResult = MapEntry<String, String>(formatName, text);
         });
@@ -227,6 +235,8 @@ class _ScanditTabState extends State<ScanditTab>
     final List<Barcode> recognized = session.recognizedBarcodes;
     if (recognized.isNotEmpty && mounted) {
       bool hasNew = false;
+      int newCodeCount = 0;
+      int duplicateCodeCount = 0;
       for (final Barcode b in recognized) {
         final String text = b.data ?? b.rawData;
         final String formatName = b.symbology
@@ -237,9 +247,17 @@ class _ScanditTabState extends State<ScanditTab>
           final ScanEntry e = ScanEntry(formatName, text);
           if (addUniqueScanEntry(_scannedEntries, e)) {
             hasNew = true;
+            newCodeCount++;
+          } else {
+            duplicateCodeCount++;
           }
         }
       }
+      _monitor.recordNativeEvent(
+        uniqueCount: newCodeCount,
+        duplicateCount: duplicateCodeCount,
+        modeLabel: _modeLabel,
+      );
       if (hasNew) {
         setState(() {});
       }
@@ -292,6 +310,7 @@ class _ScanditTabState extends State<ScanditTab>
       _singleResult = null;
       _clearMultiResults();
     });
+    _monitor.startSession(modeLabel: _modeLabel);
     if (_camera != null && _context != null) {
       _context!.setFrameSource(_camera);
       _camera!.switchToDesiredState(FrameSourceState.on);
@@ -323,13 +342,18 @@ class _ScanditTabState extends State<ScanditTab>
     if (_scanMode == ScanMode.single && _singleResult != null) {
       return ScanResultPage(
         results: <ScanEntry>[_singleResult!],
+        monitorSnapshot: _monitor.snapshot(resultCount: 1),
         onScanAgain: _resumeScan,
       );
     }
 
     // 2. Multi Scan result screen
     if (_scanMode == ScanMode.multiscan && _showMultiResultScreen) {
-      return ScanResultPage(results: _scannedEntries, onScanAgain: _resumeScan);
+      return ScanResultPage(
+        results: _scannedEntries,
+        monitorSnapshot: _monitor.snapshot(resultCount: _scannedEntries.length),
+        onScanAgain: _resumeScan,
+      );
     }
 
     return ScannerLiveScaffold(
@@ -363,6 +387,7 @@ class _ScanditTabState extends State<ScanditTab>
       _singleResult = null;
       _clearMultiResults();
     });
+    _monitor.startSession(modeLabel: _modeLabel);
     _updateModeInContext();
   }
 
@@ -373,5 +398,9 @@ class _ScanditTabState extends State<ScanditTab>
 
   void _showMultiResults() {
     setState(() => _showMultiResultScreen = true);
+  }
+
+  String get _modeLabel {
+    return _scanMode == ScanMode.single ? 'Single Code' : 'Multi Code';
   }
 }

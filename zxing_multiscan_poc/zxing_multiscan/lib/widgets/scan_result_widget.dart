@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:flutter_zxing_example/utils/scan_monitor.dart';
+
 class ScanResultWidget extends StatelessWidget {
   const ScanResultWidget({
     super.key,
     required this.results,
     this.durationMs,
+    this.monitorSnapshot,
     this.onScanAgain,
   });
 
@@ -13,18 +16,21 @@ class ScanResultWidget extends StatelessWidget {
     Key? key,
     required Map<String, String> mapResults,
     int? durationMs,
+    ScanMonitorSnapshot? monitorSnapshot,
     VoidCallback? onScanAgain,
   }) {
     return ScanResultWidget(
       key: key,
       results: mapResults.entries.toList(),
       durationMs: durationMs,
+      monitorSnapshot: monitorSnapshot,
       onScanAgain: onScanAgain,
     );
   }
 
   final List<MapEntry<String, String>> results;
   final int? durationMs;
+  final ScanMonitorSnapshot? monitorSnapshot;
   final VoidCallback? onScanAgain;
 
   @override
@@ -37,6 +43,7 @@ class ScanResultWidget extends StatelessWidget {
         _ResultHeader(
           count: count,
           durationMs: durationMs,
+          monitorSnapshot: monitorSnapshot,
           primaryColor: primaryColor,
         ),
         Expanded(
@@ -69,15 +76,20 @@ class _ResultHeader extends StatelessWidget {
   const _ResultHeader({
     required this.count,
     required this.durationMs,
+    required this.monitorSnapshot,
     required this.primaryColor,
   });
 
   final int count;
   final int? durationMs;
+  final ScanMonitorSnapshot? monitorSnapshot;
   final Color primaryColor;
 
   @override
   Widget build(BuildContext context) {
+    final int? effectiveDurationMs =
+        durationMs ?? monitorSnapshot?.timeToFirstResultMs;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
@@ -109,9 +121,14 @@ class _ResultHeader extends StatelessWidget {
                 ),
               ),
               _CountPill(count: count),
+              if (monitorSnapshot != null) ...<Widget>[
+                const SizedBox(width: 8),
+                _MonitorInfoButton(snapshot: monitorSnapshot!),
+              ],
             ],
           ),
-          if (durationMs != null && durationMs! > 0) ...<Widget>[
+          if (effectiveDurationMs != null &&
+              effectiveDurationMs > 0) ...<Widget>[
             const SizedBox(height: 10),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -119,7 +136,7 @@ class _ResultHeader extends StatelessWidget {
                 const Icon(Icons.timer_outlined, color: Colors.white, size: 16),
                 const SizedBox(width: 6),
                 Text(
-                  'Time to first decode: $durationMs ms',
+                  'Time to first result: ${_formatDuration(effectiveDurationMs)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -133,6 +150,279 @@ class _ResultHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MonitorInfoButton extends StatelessWidget {
+  const _MonitorInfoButton({required this.snapshot});
+
+  final ScanMonitorSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: IconButton(
+        tooltip: 'Scan monitor',
+        padding: EdgeInsets.zero,
+        icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+        onPressed: () => _showMonitorDialog(context, snapshot),
+      ),
+    );
+  }
+}
+
+void _showMonitorDialog(BuildContext context, ScanMonitorSnapshot snapshot) {
+  showDialog<void>(
+    context: context,
+    builder: (BuildContext context) {
+      final Size screenSize = MediaQuery.sizeOf(context);
+      final double dialogWidth = (screenSize.width - 32).clamp(320.0, 560.0);
+      final double dialogMaxHeight = screenSize.height * 0.82;
+
+      return Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: dialogWidth,
+            maxHeight: dialogMaxHeight,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Row(
+                  children: <Widget>[
+                    Icon(Icons.query_stats_rounded),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Scan Monitor',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        _MonitorSection(
+                          title: 'Session',
+                          rows: <_MonitorRowData>[
+                            _MonitorRowData('Engine', snapshot.engineName),
+                            _MonitorRowData('Mode', snapshot.modeLabel),
+                            _MonitorRowData(
+                              'Results',
+                              '${snapshot.resultCount}',
+                            ),
+                            _MonitorRowData(
+                              'Session duration',
+                              _formatDuration(snapshot.sessionDurationMs),
+                            ),
+                            _MonitorRowData(
+                              'Time to first result',
+                              _formatOptionalDuration(
+                                snapshot.timeToFirstResultMs,
+                              ),
+                            ),
+                            _MonitorRowData(
+                              'Last result at',
+                              _formatOptionalDuration(snapshot.lastResultMs),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        _MonitorSection(
+                          title: 'Decode',
+                          rows: <_MonitorRowData>[
+                            _MonitorRowData(
+                              'Attempts',
+                              '${snapshot.decodeAttempts}',
+                            ),
+                            _MonitorRowData(
+                              'Success / failed',
+                              '${snapshot.successfulDecodes} / ${snapshot.failedDecodes}',
+                            ),
+                            _MonitorRowData(
+                              'Live attempts',
+                              '${snapshot.liveDecodeAttempts}',
+                            ),
+                            _MonitorRowData(
+                              'Gallery attempts',
+                              '${snapshot.galleryDecodeAttempts}',
+                            ),
+                            _MonitorRowData(
+                              'Native SDK events',
+                              '${snapshot.nativeEvents}',
+                            ),
+                          ],
+                        ),
+                        if (snapshot.hasDecodeStats) ...<Widget>[
+                          const SizedBox(height: 14),
+                          _MonitorSection(
+                            title: 'Latency',
+                            rows: <_MonitorRowData>[
+                              _MonitorRowData(
+                                'Average decode',
+                                _formatOptionalDoubleDuration(
+                                  snapshot.averageDecodeMs,
+                                ),
+                              ),
+                              _MonitorRowData(
+                                'Min decode',
+                                _formatOptionalDuration(snapshot.minDecodeMs),
+                              ),
+                              _MonitorRowData(
+                                'Max decode',
+                                _formatOptionalDuration(snapshot.maxDecodeMs),
+                              ),
+                              _MonitorRowData(
+                                'Last decode',
+                                _formatOptionalDuration(snapshot.lastDecodeMs),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        _MonitorSection(
+                          title: 'Results',
+                          rows: <_MonitorRowData>[
+                            _MonitorRowData(
+                              'Unique results',
+                              '${snapshot.uniqueResults}',
+                            ),
+                            _MonitorRowData(
+                              'Duplicate results',
+                              '${snapshot.duplicateResults}',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _MonitorSection extends StatelessWidget {
+  const _MonitorSection({required this.title, required this.rows});
+
+  final String title;
+  final List<_MonitorRowData> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final _MonitorRowData row in rows) _MonitorMetricRow(row: row),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MonitorMetricRow extends StatelessWidget {
+  const _MonitorMetricRow({required this.row});
+
+  final _MonitorRowData row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            flex: 5,
+            child: Text(
+              row.label,
+              style: const TextStyle(color: Colors.black54, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 4,
+            child: Text(
+              row.value,
+              textAlign: TextAlign.right,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonitorRowData {
+  const _MonitorRowData(this.label, this.value);
+
+  final String label;
+  final String value;
+}
+
+String _formatOptionalDuration(int? valueMs) {
+  if (valueMs == null) return 'N/A';
+  return _formatDuration(valueMs);
+}
+
+String _formatOptionalDoubleDuration(double? valueMs) {
+  if (valueMs == null) return 'N/A';
+  return _formatDuration(valueMs.round());
+}
+
+String _formatDuration(int valueMs) {
+  if (valueMs < 1000) return '$valueMs ms';
+  return '${(valueMs / 1000).toStringAsFixed(2)} s';
 }
 
 class _CountPill extends StatelessWidget {
@@ -363,17 +653,26 @@ class ScanResultPage extends StatelessWidget {
     super.key,
     required this.results,
     required this.onScanAgain,
+    this.durationMs,
+    this.monitorSnapshot,
   });
 
   final List<MapEntry<String, String>> results;
   final VoidCallback onScanAgain;
+  final int? durationMs;
+  final ScanMonitorSnapshot? monitorSnapshot;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7F7),
       body: SafeArea(
-        child: ScanResultWidget(results: results, onScanAgain: onScanAgain),
+        child: ScanResultWidget(
+          results: results,
+          durationMs: durationMs,
+          monitorSnapshot: monitorSnapshot,
+          onScanAgain: onScanAgain,
+        ),
       ),
     );
   }

@@ -46,6 +46,7 @@ class _DemoPageState extends State<DemoPage> {
     if (_showPreviewResults) {
       return ScanResultPage(
         results: ScanResultPreview.sampleResults,
+        monitorSnapshot: ScanResultPreview.sampleMonitor,
         onScanAgain: () {
           setState(() => _showPreviewResults = false);
         },

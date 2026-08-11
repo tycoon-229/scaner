@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="POC MultiScan Preview" type="FlutterRunConfigurationType" factoryName="Flutter">
+    <option name="filePath" value="$PROJECT_DIR$/lib/main.dart" />
+    <option name="additionalArgs" value="--dart-define=PREVIEW_SCAN_RESULTS=true" />
+    <method v="2" />
+  </configuration>
+</component>

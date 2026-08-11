@@ -193,6 +193,14 @@ with hardcoded sample results from `lib/config/scan_result_preview.dart`.
 When the flag is omitted or set to `false`, the app runs the normal live scanner
 flow.
 
+Shared IDE launch configurations are included:
+
+- VS Code: select `POC MultiScan Preview` from Run and Debug.
+- Android Studio / IntelliJ: select `POC MultiScan Preview` from the run
+  configuration dropdown.
+
+The normal `POC MultiScan` configuration runs the live scanner flow.
+
 ## App Flow
 
 1. The app opens with three horizontally swipeable tabs: `ZXing`, `Dynamsoft`,

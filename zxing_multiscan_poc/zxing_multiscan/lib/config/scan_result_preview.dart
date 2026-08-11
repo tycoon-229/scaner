@@ -1,3 +1,5 @@
+import 'package:flutter_zxing_example/utils/scan_monitor.dart';
+
 class ScanResultPreview {
   const ScanResultPreview._();
 
@@ -22,4 +24,25 @@ class ScanResultPreview {
       'https://example.yuyama.local/scan/result/very-long-value-for-layout-preview',
     ),
   ];
+
+  static const ScanMonitorSnapshot sampleMonitor = ScanMonitorSnapshot(
+    engineName: 'Preview',
+    modeLabel: 'Multi Code / Preview',
+    resultCount: 7,
+    sessionDurationMs: 12840,
+    decodeAttempts: 42,
+    successfulDecodes: 9,
+    failedDecodes: 33,
+    uniqueResults: 7,
+    duplicateResults: 2,
+    liveDecodeAttempts: 39,
+    galleryDecodeAttempts: 3,
+    nativeEvents: 0,
+    totalDecodeMs: 3196,
+    timeToFirstResultMs: 684,
+    lastResultMs: 12120,
+    lastDecodeMs: 73,
+    minDecodeMs: 31,
+    maxDecodeMs: 188,
+  );
 }
