@@ -1,4 +1,4 @@
-import 'package:camera/camera.dart';
+                 import 'package:camera/camera.dart';
 import 'package:dynamsoft_capture_vision_flutter/dynamsoft_capture_vision_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';

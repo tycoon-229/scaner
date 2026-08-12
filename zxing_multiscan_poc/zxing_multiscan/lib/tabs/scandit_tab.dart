@@ -25,6 +25,11 @@ const List<Symbology> activeSymbologies = <Symbology>[
   Symbology.interleavedTwoOfFive,
   Symbology.codabar,
   Symbology.msiPlessey,
+  Symbology.gs1DatabarLimited,
+  Symbology.gs1Databar,
+  Symbology.gs1DatabarExpanded,
+  Symbology.upce,
+  Symbology.microPdf417,
 ];
 
 // Helper listener classes for Scandit SDK callbacks
@@ -149,9 +154,12 @@ class _ScanditTabState extends State<ScanditTab>
 
       // 1. Single scan mode: BarcodeCapture
       final BarcodeCaptureSettings captureSettings = BarcodeCaptureSettings();
+      final compositeTypes = {CompositeType.a, CompositeType.c, CompositeType.b};
       for (final Symbology symbology in activeSymbologies) {
         captureSettings.enableSymbology(symbology, true);
       }
+      captureSettings.enableSymbologiesForCompositeTypes(compositeTypes);
+      captureSettings.enabledCompositeTypes = compositeTypes;
       final BarcodeCapture barcodeCapture = BarcodeCapture(captureSettings);
       _captureListener = _ScanditCaptureListener(_onSingleScan);
       barcodeCapture.addListener(_captureListener!);
@@ -209,22 +217,52 @@ class _ScanditTabState extends State<ScanditTab>
     }
   }
 
+  ScanEntry _extractBarcodeResult(Barcode b) {
+    String text = b.data ?? b.rawData;
+    if (b.compositeData != null && b.compositeData!.isNotEmpty) {
+      text = '$text | Composite: ${b.compositeData}';
+    }
+
+    String formatName = b.symbology
+        .toString()
+        .replaceAll('Symbology.', '')
+        .toUpperCase();
+
+    if (b.compositeFlag != CompositeFlag.none) {
+      switch (b.compositeFlag) {
+        case CompositeFlag.gs1TypeA:
+          formatName = '$formatName (COMPOSITE A)';
+          break;
+        case CompositeFlag.gs1TypeB:
+          formatName = '$formatName (COMPOSITE B)';
+          break;
+        case CompositeFlag.gs1TypeC:
+          formatName = '$formatName (COMPOSITE C)';
+          break;
+        case CompositeFlag.linked:
+          formatName = '$formatName (COMPOSITE LINKED)';
+          break;
+        default:
+          formatName = '$formatName (${b.compositeFlag.name.toUpperCase()})';
+          break;
+      }
+    }
+
+    return MapEntry<String, String>(formatName, text);
+  }
+
   void _onSingleScan(BarcodeCapture capture, BarcodeCaptureSession session) {
     final Barcode? b = session.newlyRecognizedBarcode;
     if (b != null && mounted && _singleResult == null) {
-      final String text = b.data ?? b.rawData;
-      final String formatName = b.symbology
-          .toString()
-          .replaceAll('Symbology.', '')
-          .toUpperCase();
-      if (text.isNotEmpty) {
+      final entry = _extractBarcodeResult(b);
+      if (entry.value.isNotEmpty) {
         _monitor.recordNativeEvent(
           uniqueCount: 1,
           duplicateCount: 0,
           modeLabel: _modeLabel,
         );
         setState(() {
-          _singleResult = MapEntry<String, String>(formatName, text);
+          _singleResult = entry;
         });
         _camera?.switchToDesiredState(FrameSourceState.off);
       }
@@ -238,14 +276,9 @@ class _ScanditTabState extends State<ScanditTab>
       int newCodeCount = 0;
       int duplicateCodeCount = 0;
       for (final Barcode b in recognized) {
-        final String text = b.data ?? b.rawData;
-        final String formatName = b.symbology
-            .toString()
-            .replaceAll('Symbology.', '')
-            .toUpperCase();
-        if (text.isNotEmpty) {
-          final ScanEntry e = ScanEntry(formatName, text);
-          if (addUniqueScanEntry(_scannedEntries, e)) {
+        final entry = _extractBarcodeResult(b);
+        if (entry.value.isNotEmpty) {
+          if (addUniqueScanEntry(_scannedEntries, entry)) {
             hasNew = true;
             newCodeCount++;
           } else {

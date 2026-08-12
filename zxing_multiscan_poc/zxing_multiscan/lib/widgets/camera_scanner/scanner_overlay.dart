@@ -304,7 +304,11 @@ class _ScanLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final double y = progress * size.height;
+    final double strokePadding = lineWidth / 2 + 1.0;
+    final double usableHeight = size.height > (strokePadding * 2)
+        ? size.height - (strokePadding * 2)
+        : size.height;
+    final double y = strokePadding + (progress * usableHeight);
 
     // Soft glow halo
     if (glowRadius > 0) {

@@ -846,203 +846,207 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
         _controller != null &&
         _controller!.value.isInitialized;
 
-    final Size size = MediaQuery.of(context).size;
-    final double cameraMaxSize = max(size.width, size.height);
-    final double cropSize = min(size.width, size.height) * widget.cropPercent;
-    final Color effectiveBorderColor =
-        widget.borderColor ?? Theme.of(context).primaryColor;
-    final Color effectiveScanLineColor =
-        widget.scanLineColor ?? Theme.of(context).primaryColor;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final Size size = Size(constraints.maxWidth, constraints.maxHeight);
+        final double cameraMaxSize = max(size.width, size.height);
+        final double cropSize = min(size.width, size.height) * widget.cropPercent;
+        final Color effectiveBorderColor =
+            widget.borderColor ?? Theme.of(context).primaryColor;
+        final Color effectiveScanLineColor =
+            widget.scanLineColor ?? Theme.of(context).primaryColor;
 
-    return Stack(
-      children: <Widget>[
-        // ── 1. Camera preview (switch expression — matches zxing exactly) ──
-        switch (true) {
-          _ when !isCameraReady => widget.loading,
-          _ when _controllerVersion.startsWith('disposed_') =>
-            const DecoratedBox(decoration: BoxDecoration(color: Colors.black)),
-          _ => SizedBox(
-            width: cameraMaxSize,
-            height: cameraMaxSize,
-            child: ClipRRect(
-              child: OverflowBox(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: cameraMaxSize,
-                    child: CameraPreview(_controller!),
+        return Stack(
+          children: <Widget>[
+            // ── 1. Camera preview (switch expression — matches zxing exactly) ──
+            switch (true) {
+              _ when !isCameraReady => widget.loading,
+              _ when _controllerVersion.startsWith('disposed_') =>
+                const DecoratedBox(decoration: BoxDecoration(color: Colors.black)),
+              _ => SizedBox(
+                width: cameraMaxSize,
+                height: cameraMaxSize,
+                child: ClipRRect(
+                  child: OverflowBox(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: cameraMaxSize,
+                        child: CameraPreview(_controller!),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        },
-
-        // ── 2. Scanner overlay ─────────────────────────────────────────────
-        // Mirrors zxing exactly: shown when cropPercent != 0 && !multiscan.
-        // NOTE: rendered UNCONDITIONALLY (not gated on isCameraReady) so the
-        // dark vignette + corner brackets appear immediately, even over the
-        // loading placeholder — exactly as ReaderWidget does.
-        if (widget.showScannerOverlay &&
-            widget.cropPercent != 0 &&
-            _activeScanMode != ScanMode.multiscan)
-          Container(
-            decoration: ShapeDecoration(
-              shape:
-                  widget.scannerOverlay ??
-                  CameraScannerOverlayBorder(
-                    cutOutSize: cropSize,
-                    horizontalOffset: widget.horizontalCropOffset,
-                    verticalOffset: widget.verticalCropOffset,
-                    borderColor: effectiveBorderColor,
-                    overlayColor: widget.overlayColor,
-                    // Match zxing defaults exactly
-                    borderRadius: 4,
-                    borderLength: 20,
-                    borderWidth: 8,
-                  ),
-            ),
-          ),
-
-        // ── 3. Animated scan line (bonus over zxing — positioned inside cut-out)
-        if (widget.showScanLine &&
-            widget.showScannerOverlay &&
-            widget.cropPercent != 0 &&
-            _activeScanMode != ScanMode.multiscan &&
-            isCameraReady)
-          _ScanLinePositioned(
-            key: _laserKey,
-            screenSize: size,
-            cropSize: cropSize,
-            horizontalOffset: widget.horizontalCropOffset,
-            verticalOffset: widget.verticalCropOffset,
-            scanLineColor: effectiveScanLineColor,
-          ),
-
-        // ── 4. Pinch-to-zoom gesture detector ─────────────────────────────
-        if (widget.allowPinchZoom)
-          GestureDetector(
-            onScaleStart: (ScaleStartDetails details) {
-              _zoom = _scaleFactor;
             },
-            onScaleUpdate: (ScaleUpdateDetails details) {
-              if (!_isCameraOn) return;
-              _scaleFactor = (_zoom * details.scale).clamp(
-                _minZoomLevel,
-                _maxZoomLevel,
-              );
-              _controller?.setZoomLevel(_scaleFactor);
-            },
-          ),
 
-        // ── 5. Action buttons — mirrors ReaderWidget layout exactly ─────────
-        //   • SafeArea > Align > Padding > ClipRRect (outer, for entire row)
-        //   • Inner Row: [primary group ClipRRect] [spacer] [optional 2nd btn]
-        SafeArea(
-          child: Align(
-            alignment: widget.actionButtonsAlignment,
-            child: Padding(
-              padding: widget.actionButtonsPadding,
-              child: ClipRRect(
-                borderRadius:
-                    widget.actionButtonsBackgroundBorderRadius ??
-                    BorderRadius.circular(10.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    // ── Primary button group ──────────────────────────────
-                    ClipRRect(
-                      borderRadius:
-                          widget.actionButtonsBackgroundBorderRadius ??
-                          BorderRadius.circular(10.0),
-                      child: ColoredBox(
-                        color: widget.actionButtonsBackgroundColor,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            if (widget.showFlashlight && _isFlashAvailable)
-                              IconButton(
-                                onPressed: _onFlashButtonTapped,
-                                color: Colors.white,
-                                icon: _flashIcon(
-                                  _controller?.value.flashMode ?? FlashMode.off,
-                                ),
-                              ),
-                            if (widget.showGallery)
-                              IconButton(
-                                onPressed: _onGalleryButtonTapped,
-                                color: Colors.white,
-                                icon: widget.galleryIcon,
-                              ),
-                            if (widget.showToggleCamera)
-                              IconButton(
-                                onPressed: _onCameraButtonTapped,
-                                color: Colors.white,
-                                icon: widget.toggleCameraIcon,
-                              ),
-                          ],
-                        ),
+            // ── 2. Scanner overlay ─────────────────────────────────────────────
+            // Mirrors zxing exactly: shown when cropPercent != 0 && !multiscan.
+            // NOTE: rendered UNCONDITIONALLY (not gated on isCameraReady) so the
+            // dark vignette + corner brackets appear immediately, even over the
+            // loading placeholder — exactly as ReaderWidget does.
+            if (widget.showScannerOverlay &&
+                widget.cropPercent != 0 &&
+                _activeScanMode != ScanMode.multiscan)
+              Container(
+                decoration: ShapeDecoration(
+                  shape:
+                      widget.scannerOverlay ??
+                      CameraScannerOverlayBorder(
+                        cutOutSize: cropSize,
+                        horizontalOffset: widget.horizontalCropOffset,
+                        verticalOffset: widget.verticalCropOffset,
+                        borderColor: effectiveBorderColor,
+                        overlayColor: widget.overlayColor,
+                        // Match zxing defaults exactly
+                        borderRadius: 4,
+                        borderLength: 20,
+                        borderWidth: 8,
                       ),
-                    ),
+                ),
+              ),
 
-                    // ── Optional secondary button (mirrors zxing) ─────────
-                    if (widget.onActionSecondButton != null &&
-                        widget.actionSecondButtonIcon != null) ...<Widget>[
-                      Container(
-                        // Push above dropdown if it sits at bottom-right
-                        margin: EdgeInsets.only(
-                          bottom:
-                              (widget.onScanModeChanged != null ||
-                                      widget.showScanModeToggle) &&
-                                  widget.scanModeAlignment ==
-                                      Alignment.bottomRight
-                              ? 55.0
-                              : 0,
-                        ),
-                        child: IconButton.filled(
-                          padding: widget.actionButtonsPadding,
-                          onPressed: widget.onActionSecondButton,
-                          icon: widget.actionSecondButtonIcon!,
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                widget.actionSecondButtonIconBackgroundColor ??
-                                widget.actionButtonsBackgroundColor,
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  widget.actionButtonsBackgroundBorderRadius ??
-                                  BorderRadius.zero,
+            // ── 3. Animated scan line (bonus over zxing — positioned inside cut-out)
+            if (widget.showScanLine &&
+                widget.showScannerOverlay &&
+                widget.cropPercent != 0 &&
+                _activeScanMode != ScanMode.multiscan &&
+                isCameraReady)
+              _ScanLinePositioned(
+                key: _laserKey,
+                screenSize: size,
+                cropSize: cropSize,
+                horizontalOffset: widget.horizontalCropOffset,
+                verticalOffset: widget.verticalCropOffset,
+                scanLineColor: effectiveScanLineColor,
+              ),
+
+            // ── 4. Pinch-to-zoom gesture detector ─────────────────────────────
+            if (widget.allowPinchZoom)
+              GestureDetector(
+                onScaleStart: (ScaleStartDetails details) {
+                  _zoom = _scaleFactor;
+                },
+                onScaleUpdate: (ScaleUpdateDetails details) {
+                  if (!_isCameraOn) return;
+                  _scaleFactor = (_zoom * details.scale).clamp(
+                    _minZoomLevel,
+                    _maxZoomLevel,
+                  );
+                  _controller?.setZoomLevel(_scaleFactor);
+                },
+              ),
+
+            // ── 5. Action buttons — mirrors ReaderWidget layout exactly ─────────
+            //   • SafeArea > Align > Padding > ClipRRect (outer, for entire row)
+            //   • Inner Row: [primary group ClipRRect] [spacer] [optional 2nd btn]
+            SafeArea(
+              child: Align(
+                alignment: widget.actionButtonsAlignment,
+                child: Padding(
+                  padding: widget.actionButtonsPadding,
+                  child: ClipRRect(
+                    borderRadius:
+                        widget.actionButtonsBackgroundBorderRadius ??
+                        BorderRadius.circular(10.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        // ── Primary button group ──────────────────────────────
+                        ClipRRect(
+                          borderRadius:
+                              widget.actionButtonsBackgroundBorderRadius ??
+                              BorderRadius.circular(10.0),
+                          child: ColoredBox(
+                            color: widget.actionButtonsBackgroundColor,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                if (widget.showFlashlight && _isFlashAvailable)
+                                  IconButton(
+                                    onPressed: _onFlashButtonTapped,
+                                    color: Colors.white,
+                                    icon: _flashIcon(
+                                      _controller?.value.flashMode ?? FlashMode.off,
+                                    ),
+                                  ),
+                                if (widget.showGallery)
+                                  IconButton(
+                                    onPressed: _onGalleryButtonTapped,
+                                    color: Colors.white,
+                                    icon: widget.galleryIcon,
+                                  ),
+                                if (widget.showToggleCamera)
+                                  IconButton(
+                                    onPressed: _onCameraButtonTapped,
+                                    color: Colors.white,
+                                    icon: widget.toggleCameraIcon,
+                                  ),
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ],
+
+                        // ── Optional secondary button (mirrors zxing) ─────────
+                        if (widget.onActionSecondButton != null &&
+                            widget.actionSecondButtonIcon != null) ...<Widget>[
+                          Container(
+                            // Push above dropdown if it sits at bottom-right
+                            margin: EdgeInsets.only(
+                              bottom:
+                                  (widget.onScanModeChanged != null ||
+                                          widget.showScanModeToggle) &&
+                                      widget.scanModeAlignment ==
+                                          Alignment.bottomRight
+                                  ? 55.0
+                                  : 0,
+                            ),
+                            child: IconButton.filled(
+                              padding: widget.actionButtonsPadding,
+                              onPressed: widget.onActionSecondButton,
+                              icon: widget.actionSecondButtonIcon!,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    widget.actionSecondButtonIconBackgroundColor ??
+                                    widget.actionButtonsBackgroundColor,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      widget.actionButtonsBackgroundBorderRadius ??
+                                      BorderRadius.zero,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
 
-        // ── 6. Scan-mode dropdown ──────────────────────────────────────────
-        // Shown when [onScanModeChanged] != null  OR  [showScanModeToggle] is true.
-        // Default alignment is Alignment.bottomRight — matches zxing multiScanModeAlignment.
-        if (widget.onScanModeChanged != null || widget.showScanModeToggle)
-          SafeArea(
-            child: _ScanModeDropdown(
-              scanMode: _activeScanMode,
-              alignment: widget.scanModeAlignment,
-              padding: widget.scanModePadding,
-              onChanged: (ScanMode mode) {
-                if (mounted) setState(() => _activeScanMode = mode);
-                widget.onScanModeChanged?.call(mode);
-              },
-            ),
-          ),
+            // ── 6. Scan-mode dropdown ──────────────────────────────────────────
+            // Shown when [onScanModeChanged] != null  OR  [showScanModeToggle] is true.
+            // Default alignment is Alignment.bottomRight — matches zxing multiScanModeAlignment.
+            if (widget.onScanModeChanged != null || widget.showScanModeToggle)
+              SafeArea(
+                child: _ScanModeDropdown(
+                  scanMode: _activeScanMode,
+                  alignment: widget.scanModeAlignment,
+                  padding: widget.scanModePadding,
+                  onChanged: (ScanMode mode) {
+                    if (mounted) setState(() => _activeScanMode = mode);
+                    widget.onScanModeChanged?.call(mode);
+                  },
+                ),
+              ),
 
-        // ── 7. Custom overlay widget ───────────────────────────────────────
-        if (widget.overlayWidget != null) widget.overlayWidget!,
-      ],
+            // ── 7. Custom overlay widget ───────────────────────────────────────
+            if (widget.overlayWidget != null) widget.overlayWidget!,
+          ],
+        );
+      },
     );
   }
 }
@@ -1082,7 +1086,9 @@ class _ScanLinePositioned extends StatelessWidget {
       top: top,
       width: cropSize,
       height: cropSize,
-      child: ScannerScanLine(lineColor: scanLineColor),
+      child: ClipRect(
+        child: ScannerScanLine(lineColor: scanLineColor),
+      ),
     );
   }
 }
