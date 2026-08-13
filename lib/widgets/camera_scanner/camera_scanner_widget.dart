@@ -850,7 +850,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
       builder: (BuildContext context, BoxConstraints constraints) {
         final Size size = Size(constraints.maxWidth, constraints.maxHeight);
         final double cameraMaxSize = max(size.width, size.height);
-        final double cropSize = min(size.width, size.height) * widget.cropPercent;
+        final double cropSize =
+            min(size.width, size.height) * widget.cropPercent;
         final Color effectiveBorderColor =
             widget.borderColor ?? Theme.of(context).primaryColor;
         final Color effectiveScanLineColor =
@@ -862,7 +863,9 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
             switch (true) {
               _ when !isCameraReady => widget.loading,
               _ when _controllerVersion.startsWith('disposed_') =>
-                const DecoratedBox(decoration: BoxDecoration(color: Colors.black)),
+                const DecoratedBox(
+                  decoration: BoxDecoration(color: Colors.black),
+                ),
               _ => SizedBox(
                 width: cameraMaxSize,
                 height: cameraMaxSize,
@@ -968,7 +971,8 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
                                     onPressed: _onFlashButtonTapped,
                                     color: Colors.white,
                                     icon: _flashIcon(
-                                      _controller?.value.flashMode ?? FlashMode.off,
+                                      _controller?.value.flashMode ??
+                                          FlashMode.off,
                                     ),
                                   ),
                                 if (widget.showGallery)
@@ -1008,11 +1012,13 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
                               icon: widget.actionSecondButtonIcon!,
                               style: IconButton.styleFrom(
                                 backgroundColor:
-                                    widget.actionSecondButtonIconBackgroundColor ??
+                                    widget
+                                        .actionSecondButtonIconBackgroundColor ??
                                     widget.actionButtonsBackgroundColor,
                                 shape: RoundedRectangleBorder(
                                   borderRadius:
-                                      widget.actionButtonsBackgroundBorderRadius ??
+                                      widget
+                                          .actionButtonsBackgroundBorderRadius ??
                                       BorderRadius.zero,
                                 ),
                               ),
@@ -1086,9 +1092,7 @@ class _ScanLinePositioned extends StatelessWidget {
       top: top,
       width: cropSize,
       height: cropSize,
-      child: ClipRect(
-        child: ScannerScanLine(lineColor: scanLineColor),
-      ),
+      child: ClipRect(child: ScannerScanLine(lineColor: scanLineColor)),
     );
   }
 }

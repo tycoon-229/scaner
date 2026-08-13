@@ -5,13 +5,13 @@ import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_
 import 'package:scandit_flutter_datacapture_core/scandit_flutter_datacapture_core.dart'
     hide Rect;
 
-import 'package:flutter_zxing_example/config/license_keys.dart';
-import 'package:flutter_zxing_example/utils/scan_entries.dart';
-import 'package:flutter_zxing_example/utils/scan_monitor.dart';
-import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
-import 'package:flutter_zxing_example/widgets/camera_scanner/scan_mode.dart';
-import 'package:flutter_zxing_example/widgets/camera_scanner/scanner_overlay.dart';
-import 'package:flutter_zxing_example/widgets/scanner_live_scaffold.dart';
+import 'package:poc_multi_scan/config/license_keys.dart';
+import 'package:poc_multi_scan/utils/scan_entries.dart';
+import 'package:poc_multi_scan/utils/scan_monitor.dart';
+import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/scan_mode.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/scanner_overlay.dart';
+import 'package:poc_multi_scan/widgets/scanner_live_scaffold.dart';
 
 const List<Symbology> activeSymbologies = <Symbology>[
   Symbology.ean13Upca,
@@ -154,7 +154,11 @@ class _ScanditTabState extends State<ScanditTab>
 
       // 1. Single scan mode: BarcodeCapture
       final BarcodeCaptureSettings captureSettings = BarcodeCaptureSettings();
-      final compositeTypes = {CompositeType.a, CompositeType.c, CompositeType.b};
+      final compositeTypes = {
+        CompositeType.a,
+        CompositeType.c,
+        CompositeType.b,
+      };
       for (final Symbology symbology in activeSymbologies) {
         captureSettings.enableSymbology(symbology, true);
       }

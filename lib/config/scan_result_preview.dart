@@ -1,4 +1,4 @@
-import 'package:flutter_zxing_example/utils/scan_monitor.dart';
+import 'package:poc_multi_scan/utils/scan_monitor.dart';
 
 class ScanResultPreview {
   const ScanResultPreview._();

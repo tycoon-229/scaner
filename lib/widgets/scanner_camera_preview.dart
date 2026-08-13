@@ -1,7 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
-import 'package:flutter_zxing_example/widgets/camera_scanner/camera_scanner.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/camera_scanner.dart';
 
 class ScannerCameraPreview extends StatelessWidget {
   const ScannerCameraPreview({

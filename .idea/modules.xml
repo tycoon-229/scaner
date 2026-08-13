@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/scaner.iml" filepath="$PROJECT_DIR$/.idea/scaner.iml" />
+      <module fileurl="file://$PROJECT_DIR$/poc_multi_scan.iml" filepath="$PROJECT_DIR$/poc_multi_scan.iml" />
     </modules>
   </component>
 </project>

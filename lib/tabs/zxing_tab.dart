@@ -3,15 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
-import 'package:flutter_zxing_example/extensions/code_format_extensions.dart';
-import 'package:flutter_zxing_example/services/msi_scan_coordinator.dart';
-import 'package:flutter_zxing_example/utils/scan_entries.dart';
-import 'package:flutter_zxing_example/utils/scan_monitor.dart';
-import 'package:flutter_zxing_example/widgets/scan_result_widget.dart';
-import 'package:flutter_zxing_example/widgets/camera_scanner/camera_scanner.dart';
-import 'package:flutter_zxing_example/widgets/scanner_camera_preview.dart';
-import 'package:flutter_zxing_example/widgets/scanner_live_scaffold.dart';
-import 'package:flutter_zxing_example/widgets/scanner_message.dart';
+import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
+import 'package:poc_multi_scan/services/msi_scan_coordinator.dart';
+import 'package:poc_multi_scan/utils/scan_entries.dart';
+import 'package:poc_multi_scan/utils/scan_monitor.dart';
+import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/camera_scanner.dart';
+import 'package:poc_multi_scan/widgets/scanner_camera_preview.dart';
+import 'package:poc_multi_scan/widgets/scanner_live_scaffold.dart';
+import 'package:poc_multi_scan/widgets/scanner_message.dart';
 
 /// Demo page showing how to wire [CameraScannerWidget] to [flutter_zxing] decoder.
 ///

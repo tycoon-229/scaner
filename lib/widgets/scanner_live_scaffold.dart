@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:flutter_zxing_example/widgets/camera_scanner/scan_mode.dart';
-import 'package:flutter_zxing_example/widgets/scan_mode_controls.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/scan_mode.dart';
+import 'package:poc_multi_scan/widgets/scan_mode_controls.dart';
 
 class ScannerLiveScaffold extends StatelessWidget {
   const ScannerLiveScaffold({

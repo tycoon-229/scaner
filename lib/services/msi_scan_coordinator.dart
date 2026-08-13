@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_zxing/flutter_zxing.dart';
 
-import 'package:flutter_zxing_example/services/msi_scanner_service.dart';
+import 'package:poc_multi_scan/services/msi_scanner_service.dart';
 
 class MsiScanCandidate {
   const MsiScanCandidate({

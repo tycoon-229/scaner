@@ -17,7 +17,7 @@ mode for checking result UI without scanning real barcodes.
 - Android application ID: `com.fpt.yuyama`
 - iOS bundle identifier: `com.fpt.yuyama`
 - Primary color: orange
-- Flutter package name: `flutter_zxing_example`
+- Flutter package name: `poc_multi_scan`
 
 ## Known-Good Environment
 
@@ -86,7 +86,8 @@ lib/
 2. Clone the project and enter the app directory.
 
    ```bash
-   cd zxing_multiscan_poc/zxing_multiscan
+   git clone <repo-url> poc_multi_scan
+   cd poc_multi_scan
    ```
 
 3. Install Flutter packages.

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:flutter_zxing_example/widgets/camera_scanner/scan_mode.dart';
+import 'package:poc_multi_scan/widgets/camera_scanner/scan_mode.dart';
 
 class MultiScanSuccessButton extends StatelessWidget {
   const MultiScanSuccessButton({

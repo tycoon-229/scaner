@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:flutter_zxing_example/utils/scan_monitor.dart';
+import 'package:poc_multi_scan/utils/scan_monitor.dart';
 
 class ScanResultWidget extends StatelessWidget {
   const ScanResultWidget({
