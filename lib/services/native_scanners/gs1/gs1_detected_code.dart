@@ -80,11 +80,13 @@ class Gs1DetectedCode {
     required this.text,
     required this.format,
     required this.isValid,
+    this.rawBytes,
     this.position,
   });
 
   final String? text;
   final int? format;
   final bool isValid;
+  final List<int>? rawBytes;
   final Gs1DetectedPosition? position;
 }

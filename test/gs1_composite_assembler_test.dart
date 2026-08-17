@@ -99,7 +99,70 @@ void main() {
       );
     });
 
-    test('does not pair distant codes', () {
+    test('decodes CC-C binary general field from PDF417 raw bytes', () {
+      final Gs1CompositeAssembly? assembly = const Gs1CompositeAssembler()
+          .assemble(<Gs1DetectedCode>[
+            const Gs1DetectedCode(
+              text: '(01)03812345678908',
+              format: Gs1DetectedFormat.code128,
+              isValid: true,
+            ),
+            Gs1DetectedCode(
+              text: String.fromCharCodes(<int>[
+                0x13,
+                0x08,
+                0x21,
+                0x8A,
+                0x30,
+                0x55,
+                0x6C,
+                0x5F,
+                0x44,
+                0xD8,
+                0xF3,
+                0xB7,
+                0x0D,
+                0x59,
+                0x3D,
+                0x40,
+              ]),
+              rawBytes: const <int>[
+                0x13,
+                0x08,
+                0x21,
+                0x8A,
+                0x30,
+                0x55,
+                0x6C,
+                0x5F,
+                0x44,
+                0xD8,
+                0xF3,
+                0xB7,
+                0x0D,
+                0x59,
+                0x3D,
+                0x40,
+              ],
+              format: Gs1DetectedFormat.pdf417,
+              isValid: true,
+            ),
+          ]);
+
+      expect(assembly, isNotNull);
+      expect(
+        assembly!.resultText,
+        '(01)03812345678908(10)ABCD123456(410)3898765432108',
+      );
+      expect(
+        assembly.warnings,
+        contains(
+          '2D component parsed from GS1 Composite binary general field.',
+        ),
+      );
+    });
+
+    test('pairs distant codes as a low-confidence fallback', () {
       final Gs1CompositeAssembly? assembly = const Gs1CompositeAssembler()
           .assemble(<Gs1DetectedCode>[
             Gs1DetectedCode(
@@ -138,7 +201,14 @@ void main() {
             ),
           ]);
 
-      expect(assembly, isNull);
+      expect(assembly, isNotNull);
+      expect(assembly!.confidence, 0.25);
+      expect(
+        assembly.warnings,
+        contains(
+          'Linear and 2D candidates were both detected, but geometry did not match. Pair is accepted as a fallback because decode passes may use different crop coordinate spaces.',
+        ),
+      );
     });
   });
 

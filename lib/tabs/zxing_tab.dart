@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
@@ -871,6 +873,7 @@ class _ZxingTabState extends State<ZxingTab>
       text: code.text,
       format: code.format,
       isValid: code.isValid,
+      rawBytes: code.rawBytes,
       position: position == null
           ? null
           : Gs1DetectedPosition(
@@ -1046,11 +1049,13 @@ class _ZxingTabState extends State<ZxingTab>
     }
 
     final String summary = candidates
-        .where((Code code) => code.isValid && (code.text?.isNotEmpty ?? false))
-        .map(
+        .where(
           (Code code) =>
-              '${code.formatName ?? code.format}: "${code.text ?? ''}"',
+              code.isValid &&
+              ((code.text?.isNotEmpty ?? false) ||
+                  (code.rawBytes?.isNotEmpty ?? false)),
         )
+        .map(_describeCompositeCandidate)
         .join(' | ');
     if (summary.isEmpty) {
       debugPrint('[ZXing] Composite scan found only invalid candidates.');
@@ -1058,6 +1063,51 @@ class _ZxingTabState extends State<ZxingTab>
     }
 
     debugPrint('[ZXing] Composite candidates without pair: $summary');
+  }
+
+  String _describeCompositeCandidate(Code code) {
+    final String text = code.text ?? '';
+    final List<int>? rawBytes = code.rawBytes;
+    final String rawSummary = rawBytes == null || rawBytes.isEmpty
+        ? 'rawBytes=null'
+        : 'rawLen=${rawBytes.length}, rawHex=[${_hexBytes(rawBytes)}], rawB64=${base64Encode(rawBytes)}';
+
+    return '${code.formatName ?? code.format}: "${_visibleControlChars(text)}", textHex=[${_hexText(text)}], $rawSummary';
+  }
+
+  String _hexText(String value) {
+    return value.runes
+        .map((int rune) => rune.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
+  }
+
+  String _hexBytes(List<int> bytes) {
+    return bytes
+        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
+  }
+
+  String _visibleControlChars(String value) {
+    final StringBuffer buffer = StringBuffer();
+    for (final int rune in value.runes) {
+      switch (rune) {
+        case 8:
+          buffer.write('<BS>');
+        case 10:
+          buffer.write('<LF>');
+        case 13:
+          buffer.write('<CR>');
+        case 29:
+          buffer.write('<GS>');
+        default:
+          if (rune < 32 || rune == 127) {
+            buffer.write('<U+${rune.toRadixString(16).toUpperCase()}>');
+          } else {
+            buffer.writeCharCode(rune);
+          }
+      }
+    }
+    return buffer.toString();
   }
 
   bool _looksLikeGs1Format(String formatName) {

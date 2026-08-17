@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -58,6 +59,16 @@ class Gs1CompositeAssembly {
       ..writeln('2D component: ${Gs1DetectedFormat.name(compositeCode.format)}')
       ..writeln(_visibleSeparators(compositeCode.text ?? ''));
 
+    final List<int>? rawBytes = compositeCode.rawBytes;
+    if (rawBytes != null && rawBytes.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('2D raw bytes (hex):')
+        ..writeln(_hexBytes(rawBytes))
+        ..writeln('2D raw bytes (base64):')
+        ..writeln(base64Encode(rawBytes));
+    }
+
     if (elements.isNotEmpty) {
       buffer
         ..writeln()
@@ -101,7 +112,9 @@ class Gs1CompositeAssembler {
     final List<Gs1DetectedCode> validCodes = codes
         .where(
           (Gs1DetectedCode code) =>
-              code.isValid && (code.text?.isNotEmpty ?? false),
+              code.isValid &&
+              ((code.text?.isNotEmpty ?? false) ||
+                  (code.rawBytes?.isNotEmpty ?? false)),
         )
         .toList();
     final List<Gs1DetectedCode> linearCodes = validCodes
@@ -135,15 +148,18 @@ class Gs1CompositeAssembler {
       best.linear.text ?? '',
       fallbackFormat: best.linear.format,
     );
-    final List<Gs1Element> compositeElements = Gs1ElementStringParser.parse(
-      best.composite.text ?? '',
-      fallbackFormat: best.composite.format,
+    final _CompositePayloadParse compositePayload = _parseCompositePayload(
+      best.composite,
     );
+    final List<Gs1Element> compositeElements = compositePayload.elements;
 
     if (linearElements.isEmpty) {
       warnings.add(
         'Linear payload could not be parsed as GS1 element strings.',
       );
+    }
+    if (compositePayload.source != null && compositeElements.isNotEmpty) {
+      warnings.add('2D component parsed from ${compositePayload.source}.');
     }
     if (compositeElements.isEmpty) {
       warnings.add(
@@ -310,6 +326,48 @@ class Gs1CompositeAssembler {
       return Gs1CompositeTypeEstimate.ccaOrCcb;
     }
     return Gs1CompositeTypeEstimate.unknown;
+  }
+
+  _CompositePayloadParse _parseCompositePayload(Gs1DetectedCode code) {
+    final String text = code.text ?? '';
+    final List<Gs1Element> textElements = Gs1ElementStringParser.parse(
+      text,
+      fallbackFormat: code.format,
+    );
+    if (textElements.isNotEmpty) {
+      return _CompositePayloadParse(elements: textElements);
+    }
+
+    final List<int>? rawBytes = code.rawBytes;
+    if (rawBytes == null || rawBytes.isEmpty) {
+      return const _CompositePayloadParse(elements: <Gs1Element>[]);
+    }
+
+    final List<_PayloadCandidate> candidates = <_PayloadCandidate>[
+      if (_decodeCompositeBinaryPayload(rawBytes) case final String decoded?)
+        _PayloadCandidate('GS1 Composite binary general field', decoded),
+      _PayloadCandidate('raw bytes as Latin-1', latin1.decode(rawBytes)),
+      _PayloadCandidate(
+        'raw bytes as UTF-8',
+        utf8.decode(rawBytes, allowMalformed: true),
+      ),
+      _PayloadCandidate('raw bytes printable map', _printablePayload(rawBytes)),
+    ];
+
+    for (final _PayloadCandidate candidate in candidates) {
+      final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+        candidate.value,
+        fallbackFormat: code.format,
+      );
+      if (elements.isNotEmpty) {
+        return _CompositePayloadParse(
+          elements: elements,
+          source: candidate.source,
+        );
+      }
+    }
+
+    return const _CompositePayloadParse(elements: <Gs1Element>[]);
   }
 }
 
@@ -565,6 +623,202 @@ class Gs1ElementStringParser {
   ];
 }
 
+String? _decodeCompositeBinaryPayload(List<int> rawBytes) {
+  final _BitCursor bits = _BitCursor(rawBytes);
+  if (bits.remaining < 1) return null;
+
+  if (bits.peek(1) == 0) {
+    bits.skip(1);
+    return _decodeCompositeGeneralField(
+      bits,
+      _CompositeGeneralFieldMode.numeric,
+    );
+  }
+
+  if (bits.remaining >= 4 && bits.peek(4) == 0x0B) {
+    // Encodation method "10" with no date data. The AI "10" is implied and
+    // the remaining bits hold the lot number/general field.
+    bits.skip(4);
+    final String? generalField = _decodeCompositeGeneralField(
+      bits,
+      _CompositeGeneralFieldMode.numeric,
+    );
+    if (generalField == null) return null;
+    return '10$generalField';
+  }
+
+  return null;
+}
+
+String? _decodeCompositeGeneralField(
+  _BitCursor bits,
+  _CompositeGeneralFieldMode mode,
+) {
+  final StringBuffer buffer = StringBuffer();
+
+  while (bits.remaining > 0) {
+    if (_looksLikeCompositePadding(bits, mode)) break;
+
+    switch (mode) {
+      case _CompositeGeneralFieldMode.numeric:
+        if (bits.remaining >= 4 && bits.peek(4) == 0) {
+          bits.skip(4);
+          mode = _CompositeGeneralFieldMode.alphanumeric;
+          continue;
+        }
+        if (bits.remaining < 7) {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+        final int value = bits.read(7);
+        if (value < 8 || value > 128) {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+        final int pairValue = value - 8;
+        final int first = pairValue ~/ 11;
+        final int second = pairValue % 11;
+        if (first > 10 || second > 10) {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+        buffer.write(first == 10 ? '\u001d' : first.toString());
+        if (second == 10 &&
+            _looksLikeCompositePadding(
+              bits,
+              _CompositeGeneralFieldMode.numeric,
+            )) {
+          break;
+        }
+        buffer.write(second == 10 ? '\u001d' : second.toString());
+
+      case _CompositeGeneralFieldMode.alphanumeric:
+        if (bits.remaining >= 3 && bits.peek(3) == 0) {
+          bits.skip(3);
+          mode = _CompositeGeneralFieldMode.numeric;
+          continue;
+        }
+        if (bits.remaining >= 5) {
+          final int value5 = bits.peek(5);
+          if (value5 == 15) {
+            bits.skip(5);
+            buffer.write('\u001d');
+            mode = _CompositeGeneralFieldMode.numeric;
+            continue;
+          }
+          if (value5 == 4) {
+            bits.skip(5);
+            mode = _CompositeGeneralFieldMode.isoIec646;
+            continue;
+          }
+          if (value5 >= 5 && value5 <= 14) {
+            bits.skip(5);
+            buffer.writeCharCode(value5 + 43);
+            continue;
+          }
+        }
+        if (bits.remaining < 6) {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+        final int value6 = bits.read(6);
+        if (value6 >= 32 && value6 <= 57) {
+          buffer.writeCharCode(value6 + 33);
+        } else if (value6 >= 58 && value6 <= 62) {
+          buffer.write('*,-./'[value6 - 58]);
+        } else {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+      case _CompositeGeneralFieldMode.isoIec646:
+        if (bits.remaining >= 3 && bits.peek(3) == 0) {
+          bits.skip(3);
+          mode = _CompositeGeneralFieldMode.numeric;
+          continue;
+        }
+        if (bits.remaining >= 5) {
+          final int value5 = bits.peek(5);
+          if (value5 == 15) {
+            bits.skip(5);
+            buffer.write('\u001d');
+            mode = _CompositeGeneralFieldMode.numeric;
+            continue;
+          }
+          if (value5 == 4) {
+            bits.skip(5);
+            mode = _CompositeGeneralFieldMode.alphanumeric;
+            continue;
+          }
+          if (value5 >= 5 && value5 <= 14) {
+            bits.skip(5);
+            buffer.writeCharCode(value5 + 43);
+            continue;
+          }
+        }
+        if (bits.remaining >= 7) {
+          final int value7 = bits.peek(7);
+          if (value7 >= 64 && value7 <= 89) {
+            bits.skip(7);
+            buffer.writeCharCode(value7 + 1);
+            continue;
+          }
+          if (value7 >= 90 && value7 <= 115) {
+            bits.skip(7);
+            buffer.writeCharCode(value7 + 7);
+            continue;
+          }
+        }
+        if (bits.remaining < 8) {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+
+        final int value8 = bits.read(8);
+        const String punctuation = '!"%&\'()*+,-./:;<=>?_ ';
+        if (value8 >= 232 && value8 < 232 + punctuation.length) {
+          buffer.write(punctuation[value8 - 232]);
+        } else {
+          return buffer.isEmpty ? null : buffer.toString();
+        }
+    }
+  }
+
+  return buffer.isEmpty ? null : buffer.toString();
+}
+
+bool _looksLikeCompositePadding(
+  _BitCursor bits,
+  _CompositeGeneralFieldMode mode,
+) {
+  if (bits.remaining <= 0) return true;
+
+  return switch (mode) {
+    _CompositeGeneralFieldMode.numeric =>
+      bits.remaining >= 4 &&
+          bits.peek(4) == 0 &&
+          _remainingMatchesRepeatedPattern(bits, 4, '00100'),
+    _CompositeGeneralFieldMode.alphanumeric ||
+    _CompositeGeneralFieldMode.isoIec646 => _remainingMatchesRepeatedPattern(
+      bits,
+      0,
+      '00100',
+    ),
+  };
+}
+
+bool _remainingMatchesRepeatedPattern(
+  _BitCursor bits,
+  int offset,
+  String pattern,
+) {
+  if (bits.remaining < offset) return false;
+
+  for (int i = offset; i < bits.remaining; i++) {
+    final int expected = pattern.codeUnitAt((i - offset) % pattern.length) - 48;
+    if (bits.peekBit(i) != expected) return false;
+  }
+  return true;
+}
+
 class _AiDefinition {
   const _AiDefinition.fixed(this.ai, int length, this.title)
     : fixedLength = length,
@@ -595,4 +849,73 @@ class _PairCandidate {
 
 String _visibleSeparators(String value) {
   return value.replaceAll('\u001d', '<GS>');
+}
+
+String _hexBytes(List<int> bytes) {
+  return bytes
+      .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join(' ');
+}
+
+String _printablePayload(List<int> bytes) {
+  final StringBuffer buffer = StringBuffer();
+  for (final int byte in bytes) {
+    if (byte == 29) {
+      buffer.write('\u001d');
+    } else if (byte >= 32 && byte <= 126) {
+      buffer.writeCharCode(byte);
+    }
+  }
+  return buffer.toString();
+}
+
+class _CompositePayloadParse {
+  const _CompositePayloadParse({required this.elements, this.source});
+
+  final List<Gs1Element> elements;
+  final String? source;
+}
+
+class _PayloadCandidate {
+  const _PayloadCandidate(this.source, this.value);
+
+  final String source;
+  final String value;
+}
+
+enum _CompositeGeneralFieldMode { numeric, alphanumeric, isoIec646 }
+
+class _BitCursor {
+  _BitCursor(this.bytes);
+
+  final List<int> bytes;
+  int position = 0;
+
+  int get length => bytes.length * 8;
+  int get remaining => length - position;
+
+  int peek(int count) {
+    int value = 0;
+    for (int i = 0; i < count; i++) {
+      value = (value << 1) | peekBit(i);
+    }
+    return value;
+  }
+
+  int read(int count) {
+    final int value = peek(count);
+    skip(count);
+    return value;
+  }
+
+  void skip(int count) {
+    position += count;
+  }
+
+  int peekBit(int offset) {
+    final int bitPosition = position + offset;
+    if (bitPosition < 0 || bitPosition >= length) return 0;
+    final int byte = bytes[bitPosition >> 3];
+    return (byte >> (7 - (bitPosition & 7))) & 1;
+  }
 }
