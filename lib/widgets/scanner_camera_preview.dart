@@ -15,6 +15,7 @@ class ScannerCameraPreview extends StatelessWidget {
     required this.scanDelay,
     required this.frameIntervalMs,
     required this.resolution,
+    this.singleCropPercent = 0.75,
   });
 
   final int tabIndex;
@@ -27,6 +28,7 @@ class ScannerCameraPreview extends StatelessWidget {
   final Duration scanDelay;
   final int frameIntervalMs;
   final ResolutionPreset resolution;
+  final double singleCropPercent;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +42,7 @@ class ScannerCameraPreview extends StatelessWidget {
       onGalleryImageSelected: onGalleryImageSelected,
       onControllerCreated: onControllerCreated,
       scanModeAlignment: Alignment.bottomRight,
-      cropPercent: scanMode == ScanMode.single ? 0.5 : 0,
+      cropPercent: scanMode == ScanMode.single ? singleCropPercent : 0,
       overlayColor: Colors.black45,
       resolution: resolution,
     );
