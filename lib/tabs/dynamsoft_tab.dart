@@ -2,6 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:dynamsoft_capture_vision_flutter/dynamsoft_capture_vision_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_zxing/flutter_zxing.dart';
 
 import 'package:poc_multi_scan/config/license_keys.dart';
 import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
@@ -88,6 +89,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   final ScannerUIController _scannerController = ScannerUIController();
   final ScanMonitor _monitor = ScanMonitor(engineName: 'Dynamsoft');
+  final Gs1CompositeAssembler _gs1CompositeAssembler =
+      const Gs1CompositeAssembler();
 
   /// Key-Value pairs list for multi scan results:
   /// * `entry.key`   -> formatName (e.g. 'QR_CODE', 'EAN_13')
@@ -121,8 +124,46 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   Future<void> _initDynamsoft() async {
     try {
       await LicenseManager.initLicense(LicenseKeys.dynamsoft);
+      debugPrint('[DynamsoftTab] License initialized successfully.');
+      for (final String templateName in <String>[
+        EnumPresetTemplate.readBarcodesReadRateFirst,
+        EnumPresetTemplate.readBarcodes,
+        EnumPresetTemplate.defaultTemplate,
+      ]) {
+        try {
+          final SimplifiedCaptureVisionSettings? settings =
+              await CaptureVisionRouter.instance.getSimplifiedSettings(
+                templateName,
+              );
+          if (settings?.barcodeSettings != null) {
+            settings!.barcodeSettings!.barcodeFormatIds = EnumBarcodeFormat.all;
+            settings.barcodeSettings!.expectedBarcodesCount = 0;
+            settings.barcodeSettings!.localizationModes = <EnumLocalizationMode>[
+              EnumLocalizationMode.connectedBlocks,
+              EnumLocalizationMode.lines,
+              EnumLocalizationMode.statistics,
+              EnumLocalizationMode.scanDirectly,
+            ];
+            settings.barcodeSettings!.deblurModes = <EnumDeblurMode>[
+              EnumDeblurMode.directBinarization,
+              EnumDeblurMode.thresholdBinarization,
+              EnumDeblurMode.deepAnalysis,
+            ];
+            settings.barcodeSettings!.scaleDownThreshold = 2048;
+            await CaptureVisionRouter.instance.updateSettings(
+              templateName,
+              settings,
+            );
+            debugPrint(
+              '[DynamsoftTab] Updated template "$templateName": formats=${settings.barcodeSettings!.barcodeFormatIds}, count=${settings.barcodeSettings!.expectedBarcodesCount}',
+            );
+          }
+        } catch (e) {
+          debugPrint('[DynamsoftTab] Error updating template "$templateName": $e');
+        }
+      }
     } catch (e) {
-      debugPrint('[DynamsoftTab] initLicense error: $e');
+      debugPrint('[DynamsoftTab] initLicense/Settings error: $e');
     }
   }
 
@@ -182,7 +223,66 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
       if (barcodes.isEmpty) return false;
 
+      debugPrint(
+        '[DynamsoftTab] === DECODED FRAME: ${barcodes.length} barcode item(s) ===',
+      );
+      for (int i = 0; i < barcodes.length; i++) {
+        final BarcodeResultItem b = barcodes[i];
+        final Quadrilateral? loc = b.location;
+        final String pts =
+            loc != null
+                ? loc.points.map((p) => '(${p.x},${p.y})').join(', ')
+                : 'no-loc';
+        debugPrint(
+          '[DynamsoftTab] Item #$i: format=${b.formatString} (${b.format}), text="${b.text}", pts=[$pts]',
+        );
+      }
+
       hasDecodedCode = true;
+
+      // 4. Try assembling GS1 Composite pair from decoded items
+      final List<Code> codes = barcodes.map(_codeFromDynamsoft).toList();
+      final Gs1CompositeAssembly? compositeAssembly =
+          _gs1CompositeAssembler.assemble(codes);
+
+      debugPrint(
+        '[DynamsoftTab] GS1 Composite assembly result: ${compositeAssembly != null ? "SUCCESS (${compositeAssembly.title} => ${compositeAssembly.resultText})" : "NULL (No composite pair assembled)"}',
+      );
+
+      if (compositeAssembly != null) {
+        final ScanEntry entry = ScanEntry(
+          compositeAssembly.title,
+          compositeAssembly.resultText,
+        );
+
+        if (_scanMode == ScanMode.single) {
+          _clearPendingLinearCarrier();
+          _monitor.recordResults(uniqueCount: 1);
+          if (mounted) {
+            setState(() {
+              _singleResult = entry;
+            });
+          }
+          return true; // CameraScannerWidget auto-pauses stream
+        } else {
+          bool hasNew = false;
+          int newCodeCount = 0;
+          int duplicateCodeCount = 0;
+          if (addUniqueScanEntry(_scannedEntries, entry)) {
+            hasNew = true;
+            newCodeCount++;
+          } else {
+            duplicateCodeCount++;
+          }
+          _monitor.recordResults(
+            uniqueCount: newCodeCount,
+            duplicateCount: duplicateCodeCount,
+          );
+          if (hasNew && mounted) setState(() {});
+          return false;
+        }
+      }
+
       if (_scanMode == ScanMode.single) {
         final BarcodeResultItem? selected = _selectSingleBarcode(barcodes);
         if (selected == null) return false;
@@ -260,6 +360,22 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
       if (!mounted) return;
 
+      final List<Code> codes = barcodes.map(_codeFromDynamsoft).toList();
+      final Gs1CompositeAssembly? compositeAssembly =
+          _gs1CompositeAssembler.assemble(codes);
+
+      if (compositeAssembly != null) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
+        setState(() {
+          _singleResult = ScanEntry(
+            compositeAssembly.title,
+            compositeAssembly.resultText,
+          );
+        });
+        return;
+      }
+
       final BarcodeResultItem? selected = _selectSingleBarcode(
         barcodes,
         allowPartialCarrier: false,
@@ -311,7 +427,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
             height: image.height,
             stride: image.width,
             format: EnumImagePixelFormat.nv21,
-            orientation: 0,
+            orientation: defaultTargetPlatform == TargetPlatform.android ? 90 : 0,
           );
 
         case ImageFormatGroup.bgra8888:
@@ -373,9 +489,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         tabIndex: 1,
         controller: _scannerController,
         scanMode: _scanMode,
-        resolution: ResolutionPreset.medium,
+        resolution: ResolutionPreset.high,
         scanDelay: const Duration(milliseconds: 300),
-        frameIntervalMs: 400,
+        frameIntervalMs: 300,
         onFrameCaptured: _handleFrame,
         onGalleryImageSelected: _handleGalleryImage,
         onControllerCreated: (CameraController? cam, Exception? err) {
@@ -421,17 +537,67 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     setState(() => _showMultiResultScreen = true);
   }
 
+  Code _codeFromDynamsoft(BarcodeResultItem item) {
+    final int? zxFormat = item.formatString.toZxingFormat;
+    final Quadrilateral? loc = item.location;
+    Position? pos;
+    if (loc != null && loc.points.length >= 4) {
+      pos = Position(
+        0,
+        0,
+        loc.points[0].x,
+        loc.points[0].y,
+        loc.points[1].x,
+        loc.points[1].y,
+        loc.points[2].x,
+        loc.points[2].y,
+        loc.points[3].x,
+        loc.points[3].y,
+      );
+    }
+    return Code(
+      text: item.text,
+      format: zxFormat,
+      isValid: true,
+      position: pos,
+    );
+  }
+
   ScanEntry _entryForBarcode(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString;
     final String rawText = barcode.text;
     final bool looksLikeGs1 = _looksLikeGs1(formatName, rawText);
+
+    // Replace Dynamsoft composite pipe separator '|' with GS separator
+    final String cleanText = rawText.replaceAll('|', '\u001d');
+
+    final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+      cleanText,
+      fallbackFormat: formatName.toZxingFormat,
+    );
+
+    String title = formatName.toUpperCase().replaceAll('_', '');
+    if (elements.length > 1 || formatName.toUpperCase().contains('COMPOSITE')) {
+      if (title.contains('CODE128') ||
+          title.contains('GS1128') ||
+          title.contains('GS1COMPOSITE')) {
+        title = 'CODE128 (COMPOSITE C)';
+      } else {
+        title = '$title (COMPOSITE A)';
+      }
+    }
+
     final String? gs1Text = Gs1ElementStringParser.tryFormatElementString(
-      rawText,
+      cleanText,
       fallbackFormat: formatName.toZxingFormat,
       requireGs1Marker: !looksLikeGs1,
     );
 
-    return ScanEntry(formatName, gs1Text ?? rawText);
+    final String finalValue = elements.isNotEmpty
+        ? Gs1ElementStringParser.formatElements(elements)
+        : (gs1Text ?? rawText);
+
+    return ScanEntry(title, finalValue);
   }
 
   BarcodeResultItem? _selectSingleBarcode(
@@ -469,14 +635,27 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   bool _isCompositeResult(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString.toUpperCase();
-    return formatName.contains('COMPOSITE') ||
-        formatName.contains('GS1_COMPOSITE') ||
-        (_looksLikeGs1(formatName, barcode.text) &&
-            Gs1ElementStringParser.parse(barcode.text).length > 1);
+    final String text = barcode.text;
+    if (formatName.contains('COMPOSITE') || formatName.contains('GS1_COMPOSITE')) {
+      return true;
+    }
+    if (text.contains('|')) return true;
+
+    final String cleanText = text.replaceAll('|', '\u001d');
+    final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+      cleanText,
+      fallbackFormat: formatName.toZxingFormat,
+    );
+    return elements.length > 1;
   }
 
   bool _isLikelyPartialCompositeCarrier(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString.toUpperCase();
+    if (formatName.contains('COMPOSITE') || formatName.contains('GS1_COMPOSITE')) {
+      return false;
+    }
+    if (barcode.text.contains('|')) return false;
+
     if (!formatName.contains('CODE_128') && !formatName.contains('CODE128')) {
       return false;
     }
