@@ -17,6 +17,7 @@ object Gs1CompositeNativeDecoder {
     private const val FORMAT_UPCA = 1 shl 14
     private const val FORMAT_UPCE = 1 shl 15
     private const val FORMAT_DATABAR_LIMITED = 1 shl 19
+    private const val FORMAT_MICRO_PDF417 = 1 shl 20
 
     init {
         System.loadLibrary("gs1_composite_scanner")
@@ -95,9 +96,7 @@ object Gs1CompositeNativeDecoder {
             .maxByOrNull { it.score }
             ?: return null
 
-        val warnings = mutableListOf(
-            "ZXing-C++ reports PDF417 for the 2D component; this native POC treats a PDF417-like component above a linear carrier as CC-A/CC-B/CC-C candidate."
-        )
+        val warnings = mutableListOf<String>()
         warnings += best.warnings
 
         val linearElements = Gs1NativeElementParser.parse(best.linear.text, best.linear.format)
@@ -109,10 +108,14 @@ object Gs1CompositeNativeDecoder {
             warnings += "2D component payload could not be parsed as GS1 element strings."
         }
 
-        val typeEstimate = if (best.linear.format == FORMAT_CODE128) {
-            "CC-C candidate"
-        } else {
-            "CC-A/CC-B candidate"
+        val typeEstimate = when (best.component.format) {
+            FORMAT_MICRO_PDF417 -> "CC-A/CC-B candidate"
+            FORMAT_PDF417 -> if (best.linear.format == FORMAT_CODE128) {
+                "CC-C candidate"
+            } else {
+                "Composite candidate"
+            }
+            else -> "Composite candidate"
         }
 
         return CompositeAssembly(
@@ -296,7 +299,8 @@ object Gs1CompositeNativeDecoder {
                 format == FORMAT_EAN13 ||
                 format == FORMAT_UPCA ||
                 format == FORMAT_UPCE
-        val isCompositeComponent: Boolean get() = format == FORMAT_PDF417
+        val isCompositeComponent: Boolean
+            get() = format == FORMAT_PDF417 || format == FORMAT_MICRO_PDF417
         val formatName: String
             get() = when (format) {
                 FORMAT_CODE128 -> "Code128"
@@ -306,6 +310,7 @@ object Gs1CompositeNativeDecoder {
                 FORMAT_EAN8 -> "EAN8"
                 FORMAT_EAN13 -> "EAN13"
                 FORMAT_PDF417 -> "PDF417"
+                FORMAT_MICRO_PDF417 -> "MicroPDF417"
                 FORMAT_UPCA -> "UPCA"
                 FORMAT_UPCE -> "UPCE"
                 else -> "Unknown"

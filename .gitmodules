@@ -1,0 +1,4 @@
+[submodule "android/app/src/main/cpp/third_party/zxing-cpp"]
+	path = android/app/src/main/cpp/third_party/zxing-cpp
+	url = https://github.com/zxing-cpp/zxing-cpp.git
+	shallow = true

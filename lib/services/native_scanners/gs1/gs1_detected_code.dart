@@ -8,6 +8,7 @@ abstract class Gs1DetectedFormat {
   static const int upca = 1 << 14;
   static const int upce = 1 << 15;
   static const int dataBarLimited = 1 << 19;
+  static const int microPdf417 = 1 << 20;
 
   static int? fromName(String? value) {
     if (value == null || value.isEmpty) return null;
@@ -21,9 +22,10 @@ abstract class Gs1DetectedFormat {
     if (upper.contains('LIMITED')) return dataBarLimited;
     if (upper.contains('EXPANDED')) return dataBarExpanded;
     if (upper.contains('DATABAR') || upper.contains('RSS')) return dataBar;
-    if (upper.contains('MICRO_PDF') ||
-        upper.contains('PDF_417') ||
-        upper.contains('PDF417')) {
+    if (upper.contains('MICRO_PDF') || upper.contains('MICROPDF')) {
+      return microPdf417;
+    }
+    if (upper.contains('PDF_417') || upper.contains('PDF417')) {
       return pdf417;
     }
 
@@ -39,6 +41,7 @@ abstract class Gs1DetectedFormat {
       ean8 => 'EAN8',
       ean13 => 'EAN13',
       pdf417 => 'PDF417',
+      microPdf417 => 'MicroPDF417',
       upca => 'UPCA',
       upce => 'UPCE',
       _ => 'Unknown',

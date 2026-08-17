@@ -26,17 +26,7 @@ constexpr int FORMAT_PDF417 = 1 << 12;
 constexpr int FORMAT_UPCA = 1 << 14;
 constexpr int FORMAT_UPCE = 1 << 15;
 constexpr int FORMAT_DATABAR_LIMITED = 1 << 19;
-
-constexpr int COMPOSITE_CANDIDATE_FORMATS =
-    FORMAT_CODE128 |
-    FORMAT_DATABAR |
-    FORMAT_DATABAR_EXPANDED |
-    FORMAT_EAN8 |
-    FORMAT_EAN13 |
-    FORMAT_PDF417 |
-    FORMAT_UPCA |
-    FORMAT_UPCE |
-    FORMAT_DATABAR_LIMITED;
+constexpr int FORMAT_MICRO_PDF417 = 1 << 20;
 
 struct DecodePass {
     int left;
@@ -74,7 +64,22 @@ int elapsedMs(const steady_clock::time_point& start)
 ReaderOptions compositeReaderOptions()
 {
     return ReaderOptions()
-        .setFormats(BarcodeFormat(COMPOSITE_CANDIDATE_FORMATS))
+        .setFormats(
+            BarcodeFormat::Code128 |
+            BarcodeFormat::DataBar |
+            BarcodeFormat::DataBarOmni |
+            BarcodeFormat::DataBarStk |
+            BarcodeFormat::DataBarStkOmni |
+            BarcodeFormat::DataBarLtd |
+            BarcodeFormat::DataBarExp |
+            BarcodeFormat::DataBarExpStk |
+            BarcodeFormat::EAN8 |
+            BarcodeFormat::EAN13 |
+            BarcodeFormat::PDF417 |
+            BarcodeFormat::CompactPDF417 |
+            BarcodeFormat::MicroPDF417 |
+            BarcodeFormat::UPCA |
+            BarcodeFormat::UPCE)
         .setTryHarder(true)
         .setTryRotate(true)
         .setTryInvert(true)
@@ -102,12 +107,45 @@ std::vector<DecodePass> buildPasses(int width, int height)
     };
 }
 
+int detectedFormat(BarcodeFormat format)
+{
+    switch (format) {
+    case BarcodeFormat::Code128:
+        return FORMAT_CODE128;
+    case BarcodeFormat::DataBar:
+    case BarcodeFormat::DataBarOmni:
+    case BarcodeFormat::DataBarStk:
+    case BarcodeFormat::DataBarStkOmni:
+        return FORMAT_DATABAR;
+    case BarcodeFormat::DataBarExp:
+    case BarcodeFormat::DataBarExpStk:
+        return FORMAT_DATABAR_EXPANDED;
+    case BarcodeFormat::DataBarLtd:
+        return FORMAT_DATABAR_LIMITED;
+    case BarcodeFormat::EAN8:
+        return FORMAT_EAN8;
+    case BarcodeFormat::EAN13:
+        return FORMAT_EAN13;
+    case BarcodeFormat::PDF417:
+    case BarcodeFormat::CompactPDF417:
+        return FORMAT_PDF417;
+    case BarcodeFormat::MicroPDF417:
+        return FORMAT_MICRO_PDF417;
+    case BarcodeFormat::UPCA:
+        return FORMAT_UPCA;
+    case BarcodeFormat::UPCE:
+        return FORMAT_UPCE;
+    default:
+        return 0;
+    }
+}
+
 std::string dedupeKey(const NativeCode& code)
 {
     return std::to_string(code.format) + "|" + code.text;
 }
 
-NativeCode nativeCodeFromResult(const Result& result, const DecodePass& pass, int imageWidth, int imageHeight)
+NativeCode nativeCodeFromResult(const Barcode& result, const DecodePass& pass, int imageWidth, int imageHeight)
 {
     auto pos = result.position();
     auto tl = pos.topLeft();
@@ -117,7 +155,7 @@ NativeCode nativeCodeFromResult(const Result& result, const DecodePass& pass, in
 
     NativeCode code;
     code.text = result.text();
-    code.format = static_cast<int>(result.format());
+    code.format = detectedFormat(result.format());
     code.imageWidth = imageWidth;
     code.imageHeight = imageHeight;
     code.topLeftX = tl.x + pass.left;
@@ -150,8 +188,8 @@ std::vector<NativeCode> decodeLuminance(
     ImageView image(data, size, width, height, ImageFormat::Lum, rowStride);
     for (const DecodePass& pass : buildPasses(width, height)) {
         ImageView cropped = image.cropped(pass.left, pass.top, pass.width, pass.height);
-        Results results = ReadBarcodes(cropped, options);
-        for (const Result& result : results) {
+        Barcodes results = ReadBarcodes(cropped, options);
+        for (const Barcode& result : results) {
             if (!result.isValid() || result.text().empty()) {
                 continue;
             }

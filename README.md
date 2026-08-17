@@ -11,6 +11,11 @@ The app supports live camera scanning, single-code and multi-code modes, a share
 result list UI, gallery image decoding for supported engines, and a debug preview
 mode for checking result UI without scanning real barcodes.
 
+GS1 Composite is handled as a special native path. Regular barcode scanning can
+still use `flutter_zxing`, Dynamsoft, or Scandit, but GS1 Composite decoding uses
+the dedicated native module so it can support CC-A, CC-B, and CC-C without
+coupling the other engines to ZXing internals.
+
 ## Project Info
 
 - App name: `POC MultiScan`
@@ -45,6 +50,23 @@ Required by `pubspec.yaml`:
 - `camera: >=0.10.5 <0.13.0`
 - `image_picker: ^1.0.0`
 
+## Native Dependencies
+
+Android GS1 Composite uses ZXing-C++ as a Git submodule:
+
+```text
+android/app/src/main/cpp/third_party/zxing-cpp
+```
+
+The submodule is pinned to ZXing-C++ `v3.1.1`, which includes MicroPDF417
+decoder support required for GS1 Composite CC-A and CC-B. The normal Flutter
+`flutter_zxing` package remains in use for non-composite ZXing scans.
+
+iOS GS1 Composite uses Apple Vision. On iOS 17 and newer, Vision can coalesce
+GS1 Composite symbols and report CC-A, CC-B, or CC-C. On older supported iOS
+versions, the native module falls back to pairing the linear carrier and
+PDF417/MicroPDF417 component by geometry.
+
 ## Repository Structure
 
 ```text
@@ -58,7 +80,9 @@ lib/
   extensions/
     code_format_extensions.dart
   services/
-    msi_scanner_service.dart
+    native_scanners/
+      gs1/                    # Neutral GS1 model, parser, assembler, channel API
+      msi/                    # Native MSI channel API and coordinator
   tabs/
     zxing_tab.dart
     dynamsoft_tab.dart
@@ -73,6 +97,17 @@ lib/
     scan_result_widget.dart
     scanner_camera_preview.dart
     scanner_live_scaffold.dart
+android/
+  app/src/main/cpp/
+    gs1_composite_scanner.cpp
+    third_party/zxing-cpp      # Git submodule pinned to v3.1.1
+  app/src/main/kotlin/com/fpt/yuyama/scanner/
+    gs1/
+    msi/
+ios/
+  Runner/NativeScanners/
+    GS1/
+    MSI/
 ```
 
 ## Setup
@@ -86,8 +121,14 @@ lib/
 2. Clone the project and enter the app directory.
 
    ```bash
-   git clone <repo-url> poc_multi_scan
+   git clone --recurse-submodules <repo-url> poc_multi_scan
    cd poc_multi_scan
+   ```
+
+   If you already cloned without submodules, initialize them before building:
+
+   ```bash
+   git submodule update --init --recursive --depth 1
    ```
 
 3. Install Flutter packages.
@@ -264,9 +305,15 @@ The normal `POC MultiScan` configuration runs the live scanner flow.
 ## Engine Notes
 
 - ZXing uses the shared camera scanner widget and `flutter_zxing` decoding.
+- GS1 Composite on the ZXing tab first tries the dedicated native GS1 Composite
+  module, then falls back to Dart-side pairing for decoded candidates.
 - Dynamsoft uses the shared camera scanner widget and Dynamsoft decoding.
 - Scandit uses Scandit's native capture context and camera integration.
 - Gallery image decoding is currently wired for ZXing and Dynamsoft.
+- Android GS1 Composite links ZXing-C++ `v3.1.1` through the submodule because
+  CC-A and CC-B require MicroPDF417 support.
+- iOS GS1 Composite uses Vision with coalesced composite symbologies on iOS 17+
+  and geometry pairing fallback for separate observations.
 
 ## Common Commands
 
@@ -328,6 +375,20 @@ Use preview mode:
 
 ```bash
 flutter run --debug --dart-define=PREVIEW_SCAN_RESULTS=true
+```
+
+### Android CMake cannot find ZXing-C++
+
+Make sure the ZXing-C++ submodule has been initialized:
+
+```bash
+git submodule update --init --recursive --depth 1
+```
+
+The expected path is:
+
+```text
+android/app/src/main/cpp/third_party/zxing-cpp/core
 ```
 
 ### Swift Package Manager warning

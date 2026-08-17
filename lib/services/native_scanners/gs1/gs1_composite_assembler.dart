@@ -125,11 +125,7 @@ class Gs1CompositeAssembler {
       return null;
     }
 
-    final List<String> warnings = <String>[
-      ...best.warnings,
-      if (best.composite.format == Gs1DetectedFormat.pdf417)
-        'This POC maps PDF417-like composite components to one generic PDF417 format and cannot distinguish PDF417 from MicroPDF417.',
-    ];
+    final List<String> warnings = <String>[...best.warnings];
 
     final List<Gs1Element> linearElements = Gs1ElementStringParser.parse(
       best.linear.text ?? '',
@@ -177,7 +173,8 @@ class Gs1CompositeAssembler {
   }
 
   bool _isCompositeComponent(Gs1DetectedCode code) {
-    return code.format == Gs1DetectedFormat.pdf417;
+    return code.format == Gs1DetectedFormat.pdf417 ||
+        code.format == Gs1DetectedFormat.microPdf417;
   }
 
   _PairCandidate? _scorePair(
@@ -270,7 +267,7 @@ class Gs1CompositeAssembler {
         composite.format == Gs1DetectedFormat.pdf417) {
       return Gs1CompositeTypeEstimate.ccc;
     }
-    if (composite.format == Gs1DetectedFormat.pdf417) {
+    if (composite.format == Gs1DetectedFormat.microPdf417) {
       return Gs1CompositeTypeEstimate.ccaOrCcb;
     }
     return Gs1CompositeTypeEstimate.unknown;

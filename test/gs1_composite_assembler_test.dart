@@ -52,6 +52,53 @@ void main() {
       );
     });
 
+    test('pairs a MicroPDF417 component as CC-A or CC-B', () {
+      final Gs1CompositeAssembly? assembly = const Gs1CompositeAssembler()
+          .assemble(<Gs1DetectedCode>[
+            Gs1DetectedCode(
+              text: '0103812345678908',
+              format: Gs1DetectedFormat.dataBar,
+              isValid: true,
+              position: Gs1DetectedPosition(
+                imageWidth: 1000,
+                imageHeight: 800,
+                topLeftX: 200,
+                topLeftY: 420,
+                topRightX: 800,
+                topRightY: 420,
+                bottomLeftX: 200,
+                bottomLeftY: 500,
+                bottomRightX: 800,
+                bottomRightY: 500,
+              ),
+            ),
+            Gs1DetectedCode(
+              text: '10ABCD123456\u001d4103898765432108',
+              format: Gs1DetectedFormat.microPdf417,
+              isValid: true,
+              position: Gs1DetectedPosition(
+                imageWidth: 1000,
+                imageHeight: 800,
+                topLeftX: 230,
+                topLeftY: 300,
+                topRightX: 770,
+                topRightY: 300,
+                bottomLeftX: 230,
+                bottomLeftY: 400,
+                bottomRightX: 770,
+                bottomRightY: 400,
+              ),
+            ),
+          ]);
+
+      expect(assembly, isNotNull);
+      expect(assembly!.typeEstimate, Gs1CompositeTypeEstimate.ccaOrCcb);
+      expect(
+        assembly.resultText,
+        '(01)03812345678908(10)ABCD123456(410)3898765432108',
+      );
+    });
+
     test('does not pair distant codes', () {
       final Gs1CompositeAssembly? assembly = const Gs1CompositeAssembler()
           .assemble(<Gs1DetectedCode>[

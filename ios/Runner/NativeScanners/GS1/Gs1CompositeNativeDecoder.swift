@@ -11,8 +11,10 @@ final class Gs1CompositeNativeDecoder {
   private static let formatEAN8 = 1 << 8
   private static let formatEAN13 = 1 << 9
   private static let formatPDF417 = 1 << 12
+  private static let formatUPCA = 1 << 14
   private static let formatUPCE = 1 << 15
   private static let formatDataBarLimited = 1 << 19
+  private static let formatMicroPDF417 = 1 << 20
 
   static func decodeCameraBytes(
     _ data: FlutterStandardTypedData,
@@ -115,6 +117,7 @@ final class Gs1CompositeNativeDecoder {
       "Code128",
       "EAN8",
       "EAN13",
+      "UPCA",
       "UPCE",
       "GS1DataBar",
       "PDF417",
@@ -153,8 +156,8 @@ final class Gs1CompositeNativeDecoder {
           imageWidth: imageWidth,
           imageHeight: imageHeight,
           overrideText: componentText,
-          overrideFormat: formatPDF417,
-          overrideFormatName: "Supplemental PDF417/MicroPDF417"
+          overrideFormat: componentFormat(for: observation.supplementalCompositeType),
+          overrideFormatName: componentFormatName(for: observation.supplementalCompositeType)
         )
 
         return makeAssembly(
@@ -199,7 +202,9 @@ final class Gs1CompositeNativeDecoder {
       linear: best.linear,
       component: best.component,
       confidence: best.score,
-      typeEstimate: best.linear.format == formatCode128 ? "CC-C candidate" : "CC-A/CC-B candidate",
+      typeEstimate: best.component.format == formatMicroPDF417
+        ? "CC-A/CC-B candidate"
+        : (best.linear.format == formatCode128 ? "CC-C candidate" : "Composite candidate"),
       warnings: [
         "Vision did not return a coalesced composite result; this result was paired by geometry.",
       ]
@@ -298,7 +303,9 @@ final class Gs1CompositeNativeDecoder {
     if rawValue.localizedCaseInsensitiveContains("GS1DataBar") { return formatDataBar }
     if rawValue.localizedCaseInsensitiveContains("EAN8") { return formatEAN8 }
     if rawValue.localizedCaseInsensitiveContains("EAN13") { return formatEAN13 }
+    if rawValue.localizedCaseInsensitiveContains("MicroPDF417") { return formatMicroPDF417 }
     if rawValue.localizedCaseInsensitiveContains("PDF417") { return formatPDF417 }
+    if rawValue.localizedCaseInsensitiveContains("UPCA") { return formatUPCA }
     if rawValue.localizedCaseInsensitiveContains("UPCE") { return formatUPCE }
     return 0
   }
@@ -314,11 +321,29 @@ final class Gs1CompositeNativeDecoder {
     case formatDataBarLimited: return "DataBarLimited"
     case formatEAN8: return "EAN8"
     case formatEAN13: return "EAN13"
-    case formatPDF417: return symbology.rawValue.localizedCaseInsensitiveContains("Micro")
-      ? "MicroPDF417"
-      : "PDF417"
+    case formatPDF417: return "PDF417"
+    case formatMicroPDF417: return "MicroPDF417"
+    case formatUPCA: return "UPCA"
     case formatUPCE: return "UPCE"
     default: return symbology.rawValue
+    }
+  }
+
+  @available(iOS 17.0, *)
+  private static func componentFormat(for type: VNBarcodeCompositeType) -> Int {
+    switch type {
+    case .gs1TypeA, .gs1TypeB: return formatMicroPDF417
+    case .gs1TypeC: return formatPDF417
+    default: return 0
+    }
+  }
+
+  @available(iOS 17.0, *)
+  private static func componentFormatName(for type: VNBarcodeCompositeType) -> String {
+    switch type {
+    case .gs1TypeA, .gs1TypeB: return "MicroPDF417"
+    case .gs1TypeC: return "PDF417"
+    default: return "Supplemental Composite"
     }
   }
 
@@ -519,12 +544,14 @@ private struct CodeCandidate {
       format == (1 << 6) ||
       format == (1 << 8) ||
       format == (1 << 9) ||
+      format == (1 << 14) ||
       format == (1 << 15) ||
       format == (1 << 19)
   }
 
   var isCompositeComponent: Bool {
-    format == (1 << 12)
+    format == (1 << 12) ||
+      format == (1 << 20)
   }
 
   func toMap() -> [String: Any?] {
@@ -575,12 +602,21 @@ private enum Gs1VisionElementParser {
     {
       value = String(value[thirdIndex...])
     }
+    value = value
+      .replacingOccurrences(of: "{GS}", with: "\u{001D}")
+      .replacingOccurrences(of: "<GS>", with: "\u{001D}")
+      .replacingOccurrences(of: "\\u001d", with: "\u{001D}")
+      .replacingOccurrences(of: "\\x1d", with: "\u{001D}")
+      .replacingOccurrences(of: "\u{241D}", with: "\u{001D}")
+    while value.first?.unicodeScalars.first?.value == 29 {
+      value.removeFirst()
+    }
 
     if value.allSatisfy(\.isNumber) {
       if fallbackFormat == (1 << 9), value.count == 13 {
         return "01" + value.leftPadded(to: 14, with: "0")
       }
-      if value.count == 12 {
+      if fallbackFormat == (1 << 14), value.count == 12 {
         return "01" + value.leftPadded(to: 14, with: "0")
       }
       if fallbackFormat == (1 << 8), value.count == 8 {
@@ -693,6 +729,10 @@ private enum Gs1VisionElementParser {
     .fixed("8005", length: 6, title: "Price per unit of measure"),
     .fixed("8006", length: 18, title: "ITIP"),
     .fixed("8026", length: 18, title: "ITIP contained"),
+    .fixed("410", length: 13, title: "Ship to GLN"),
+    .fixed("411", length: 13, title: "Bill to GLN"),
+    .fixed("412", length: 13, title: "Purchased from GLN"),
+    .fixed("413", length: 13, title: "Ship for GLN"),
     .fixed("415", length: 13, title: "Pay to GLN"),
     .fixed("414", length: 13, title: "Physical location GLN"),
     .fixed("422", length: 3, title: "Country of origin"),
