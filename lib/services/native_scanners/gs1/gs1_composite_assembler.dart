@@ -288,6 +288,18 @@ class Gs1ElementStringParser {
     return formatElements(elements);
   }
 
+  static bool looksLikeEscapedBinaryControlPayload(String raw) {
+    final bool hasControlRunes = raw.runes.any(
+      (int rune) => rune < 32 && rune != 10 && rune != 13 && rune != 29,
+    );
+    if (hasControlRunes) return true;
+
+    return RegExp(
+      r'<(?:NUL|SOH|STX|ETX|EOT|ENQ|ACK|BEL|BS|HT|LF|VT|FF|CR|SO|SI|DLE|DC[1-4]|NAK|SYN|ETB|CAN|EM|SUB|ESC|FS|RS|US)>',
+      caseSensitive: false,
+    ).hasMatch(raw);
+  }
+
   static List<Gs1Element> parse(String raw, {int? fallbackFormat}) {
     final String normalized = _normalize(raw, fallbackFormat: fallbackFormat);
     if (normalized.isEmpty) return const <Gs1Element>[];

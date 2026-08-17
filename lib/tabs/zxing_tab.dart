@@ -590,9 +590,7 @@ class _ZxingTabState extends State<ZxingTab>
         null;
     if (hasGs1Payload) return false;
 
-    return text.runes.any(
-      (int rune) => rune < 32 && rune != 10 && rune != 13 && rune != 29,
-    );
+    return Gs1ElementStringParser.looksLikeEscapedBinaryControlPayload(text);
   }
 
   bool _looksLikeGs1Format(String formatName) {

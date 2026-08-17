@@ -95,5 +95,14 @@ void main() {
         '(01)03812345678908(10)ABCD123456(410)3898765432108',
       );
     });
+
+    test('detects escaped binary PDF417 component payloads', () {
+      expect(
+        Gs1ElementStringParser.looksLikeEscapedBinaryControlPayload(
+          '<DC3><BS>!<U+8A>OUl_D\u00d86\u00b7<CR>Y=@',
+        ),
+        isTrue,
+      );
+    });
   });
 }
