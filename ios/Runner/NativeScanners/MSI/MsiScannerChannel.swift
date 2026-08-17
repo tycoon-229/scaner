@@ -1,7 +1,7 @@
 import Flutter
 import Foundation
 
-final class MsiScannerChannel {
+final class MsiScannerChannel: NativeScannerChannel {
   private static let channelName = "com.fpt.yuyama/msi_scanner"
 
   private let channel: FlutterMethodChannel

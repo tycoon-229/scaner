@@ -3,7 +3,7 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private var msiScannerChannel: MsiScannerChannel?
+  private var nativeScannerRegistry: NativeScannerRegistry?
 
   override func application(
     _ application: UIApplication,
@@ -14,7 +14,7 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    msiScannerChannel = MsiScannerChannel(
+    nativeScannerRegistry = NativeScannerRegistry(
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
   }

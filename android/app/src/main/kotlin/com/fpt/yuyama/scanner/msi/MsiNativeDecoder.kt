@@ -1,4 +1,4 @@
-package com.fpt.yuyama
+package com.fpt.yuyama.scanner.msi
 
 import android.graphics.Bitmap
 import kotlin.math.max

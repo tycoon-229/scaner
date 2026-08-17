@@ -1,17 +1,15 @@
-package com.fpt.yuyama
+package com.fpt.yuyama.scanner.msi
 
 import android.graphics.BitmapFactory
-import android.os.Handler
-import android.os.Looper
+import com.fpt.yuyama.scanner.platform.MethodChannelDecodeExecutor
+import com.fpt.yuyama.scanner.platform.ScannerChannel
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 class MsiScannerChannel private constructor(
     flutterEngine: FlutterEngine
-) : MethodChannel.MethodCallHandler {
+) : MethodChannel.MethodCallHandler, ScannerChannel {
 
     companion object {
         private const val CHANNEL = "com.fpt.yuyama/msi_scanner"
@@ -22,8 +20,10 @@ class MsiScannerChannel private constructor(
     }
 
     private val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-    private val backgroundExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val decodeExecutor = MethodChannelDecodeExecutor(
+        errorCode = "MSI_DECODE_FAILED",
+        fallbackErrorMessage = "MSI decode failed"
+    )
 
     init {
         channel.setMethodCallHandler(this)
@@ -37,9 +37,9 @@ class MsiScannerChannel private constructor(
         }
     }
 
-    fun dispose() {
+    override fun dispose() {
         channel.setMethodCallHandler(null)
-        backgroundExecutor.shutdown()
+        decodeExecutor.shutdown()
     }
 
     private fun decodeYuv(call: MethodCall, result: MethodChannel.Result) {
@@ -58,13 +58,16 @@ class MsiScannerChannel private constructor(
             return
         }
 
-        executeDecode(result, source = "yuv") {
-            MsiNativeDecoder.decodeYuvLuminance(
-                yArray = bytes,
-                width = width,
-                height = height,
-                rowStride = rowStride,
-                scheme = checksumScheme
+        executeDecode(result) {
+            mapOf(
+                "text" to MsiNativeDecoder.decodeYuvLuminance(
+                    yArray = bytes,
+                    width = width,
+                    height = height,
+                    rowStride = rowStride,
+                    scheme = checksumScheme
+                ),
+                "source" to "yuv"
             )
         }
     }
@@ -78,40 +81,23 @@ class MsiScannerChannel private constructor(
             return
         }
 
-        executeDecode(result, source = "bitmap") {
+        executeDecode(result) {
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bitmap == null) null else MsiNativeDecoder.decodeBitmap(bitmap, checksumScheme)
+            mapOf(
+                "text" to if (bitmap == null) null else MsiNativeDecoder.decodeBitmap(bitmap, checksumScheme),
+                "source" to "bitmap"
+            )
         }
     }
 
     private fun executeDecode(
         result: MethodChannel.Result,
-        source: String,
-        decode: () -> String?
+        decode: () -> Map<String, Any?>
     ) {
-        backgroundExecutor.execute {
+        decodeExecutor.execute(result) {
             val startedAt = System.nanoTime()
-            try {
-                val decodedText = decode()
-                val durationMs = ((System.nanoTime() - startedAt) / 1_000_000L).toInt()
-                mainHandler.post {
-                    result.success(
-                        mapOf(
-                            "text" to decodedText,
-                            "durationMs" to durationMs,
-                            "source" to source
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                mainHandler.post {
-                    result.error(
-                        "MSI_DECODE_FAILED",
-                        e.message ?: "MSI decode failed",
-                        null
-                    )
-                }
-            }
+            val decoded = decode()
+            decoded + ("durationMs" to ((System.nanoTime() - startedAt) / 1_000_000L).toInt())
         }
     }
 

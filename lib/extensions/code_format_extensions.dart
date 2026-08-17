@@ -20,6 +20,8 @@ abstract class CustomFormat {
   static const int australianPost = 9987;
   static const int rm4scc = 9986;
   static const int kix = 9985;
+  static const int gs1CompositePoc = 9984;
+  static const int dataBarLimited = 1 << 19;
 }
 
 extension SafeCodeFormatExt on int {
@@ -55,6 +57,10 @@ extension SafeCodeFormatExt on int {
         return 'RM4SCC';
       case CustomFormat.kix:
         return 'KIX Code';
+      case CustomFormat.gs1CompositePoc:
+        return 'GS1 Composite POC';
+      case CustomFormat.dataBarLimited:
+        return 'DataBarLimited';
       default:
         return name;
     }

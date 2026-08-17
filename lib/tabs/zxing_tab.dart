@@ -4,7 +4,9 @@ import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
-import 'package:poc_multi_scan/services/msi_scan_coordinator.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_native_service.dart';
+import 'package:poc_multi_scan/services/native_scanners/msi/msi_scan_coordinator.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
@@ -37,6 +39,8 @@ class _ZxingTabState extends State<ZxingTab>
   final ScannerUIController _scannerController = ScannerUIController();
   final ScanMonitor _monitor = ScanMonitor(engineName: 'ZXing');
   final MsiScanCoordinator _msiScanCoordinator = MsiScanCoordinator();
+  final Gs1CompositeAssembler _gs1CompositeAssembler =
+      const Gs1CompositeAssembler();
 
   Code? result;
 
@@ -148,7 +152,7 @@ class _ZxingTabState extends State<ZxingTab>
           for (final Code c in res.codes) {
             if (c.isValid && c.text != null && c.text!.isNotEmpty) {
               hasDecodedCode = true;
-              final String key = c.format?.name ?? 'UNKNOWN';
+              final String key = c.formatName ?? 'UNKNOWN';
               final String value = c.text!;
 
               if (addUniqueScanEntry(_scannedEntries, ScanEntry(key, value))) {
@@ -159,6 +163,11 @@ class _ZxingTabState extends State<ZxingTab>
               }
             }
           }
+          final bool hasCompositeResult = _addCompositeResult(res.codes);
+          if (hasCompositeResult) {
+            hasNewCode = true;
+            newCodeCount++;
+          }
           _monitor.recordResults(
             uniqueCount: newCodeCount,
             duplicateCount: duplicateCodeCount,
@@ -168,6 +177,32 @@ class _ZxingTabState extends State<ZxingTab>
           }
         }
       } else {
+        final Gs1CompositeNativeResult nativeCompositeResult =
+            await _scanNativeCompositeFromFrame(image);
+        if (nativeCompositeResult.hasResult) {
+          hasDecodedCode = true;
+          _monitor.recordResults(uniqueCount: 1);
+          if (mounted) {
+            setState(() {
+              result = _createNativeCompositeCode(nativeCompositeResult);
+            });
+          }
+          return true;
+        }
+
+        final Gs1CompositeAssembly? compositeAssembly =
+            await _scanCompositeFromFrame(image, params);
+        if (compositeAssembly != null) {
+          hasDecodedCode = true;
+          _monitor.recordResults(uniqueCount: 1);
+          if (mounted) {
+            setState(() {
+              result = _createCompositeCode(compositeAssembly);
+            });
+          }
+          return true;
+        }
+
         final Code res = await zx
             .processCameraImage(image, params)
             .timeout(
@@ -223,6 +258,45 @@ class _ZxingTabState extends State<ZxingTab>
     );
 
     try {
+      final Gs1CompositeNativeResult nativeCompositeResult =
+          await Gs1CompositeNativeService.decodeBitmapPath(path);
+      if (nativeCompositeResult.hasResult) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
+        if (mounted) {
+          setState(() {
+            result = _createNativeCompositeCode(nativeCompositeResult);
+          });
+        }
+        return;
+      }
+
+      final Codes multiRes = await zx.readBarcodesImagePathString(
+        path,
+        DecodeParams(
+          imageFormat: zxing.ImageFormat.rgb,
+          format: _compositeCandidateFormats,
+          tryHarder: true,
+          tryInverted: true,
+          tryRotate: true,
+          isMultiScan: true,
+          maxNumberOfSymbols: 8,
+          maxSize: 1600,
+        ),
+      );
+      final Gs1CompositeAssembly? compositeAssembly = _gs1CompositeAssembler
+          .assemble(multiRes.codes);
+      if (compositeAssembly != null) {
+        hasDecodedCode = true;
+        _monitor.recordResults(uniqueCount: 1);
+        if (mounted) {
+          setState(() {
+            result = _createCompositeCode(compositeAssembly);
+          });
+        }
+        return;
+      }
+
       final Code res = await zx.readBarcodeImagePathString(path, params);
       if (res.isValid) {
         hasDecodedCode = true;
@@ -269,7 +343,7 @@ class _ZxingTabState extends State<ZxingTab>
         result?.isValid == true) {
       return ScanResultPage(
         results: <ScanEntry>[
-          ScanEntry(result?.format?.name ?? '', result?.text ?? ''),
+          ScanEntry(result?.formatName ?? '', result?.text ?? ''),
         ],
         monitorSnapshot: _monitor.snapshot(resultCount: 1),
         onScanAgain: () {
@@ -361,6 +435,84 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
+  Future<Gs1CompositeAssembly?> _scanCompositeFromFrame(
+    CameraImage image,
+    DecodeParams baseParams,
+  ) async {
+    final Codes res = await zx
+        .processCameraImageMulti(
+          image,
+          DecodeParams(
+            imageFormat: baseParams.imageFormat,
+            format: _compositeCandidateFormats,
+            width: baseParams.width,
+            height: baseParams.height,
+            cropLeft: baseParams.cropLeft,
+            cropTop: baseParams.cropTop,
+            cropWidth: baseParams.cropWidth,
+            cropHeight: baseParams.cropHeight,
+            tryHarder: true,
+            tryRotate: true,
+            tryInverted: true,
+            tryDownscale: true,
+            isMultiScan: true,
+            maxNumberOfSymbols: 8,
+            maxSize: 1200,
+          ),
+        )
+        .timeout(const Duration(milliseconds: 1200), onTimeout: () => Codes());
+
+    return _gs1CompositeAssembler.assemble(res.codes);
+  }
+
+  Future<Gs1CompositeNativeResult> _scanNativeCompositeFromFrame(
+    CameraImage image,
+  ) async {
+    if (image.planes.isEmpty) {
+      return const Gs1CompositeNativeResult.empty(
+        warning: 'Camera frame has no planes',
+      );
+    }
+
+    return Gs1CompositeNativeService.decodeYuvLuminance(
+      image.planes.first.bytes,
+      imageWidth: image.width,
+      imageHeight: image.height,
+      rowStride: image.planes.first.bytesPerRow,
+      imageFormatGroup: image.format.group.name,
+    );
+  }
+
+  bool _addCompositeResult(List<Code> codes) {
+    final Gs1CompositeAssembly? assembly = _gs1CompositeAssembler.assemble(
+      codes,
+    );
+    if (assembly == null) return false;
+
+    return addUniqueScanEntry(
+      _scannedEntries,
+      ScanEntry(assembly.title, assembly.toDisplayText()),
+    );
+  }
+
+  Code _createCompositeCode(Gs1CompositeAssembly assembly) {
+    return Code(
+      text: assembly.toDisplayText(),
+      format: CustomFormat.gs1CompositePoc,
+      isValid: true,
+      duration: 0,
+    );
+  }
+
+  Code _createNativeCompositeCode(Gs1CompositeNativeResult result) {
+    return Code(
+      text: result.text,
+      format: CustomFormat.gs1CompositePoc,
+      isValid: true,
+      duration: result.durationMs,
+    );
+  }
+
   void _resumeScan() {
     _scannerController.resumeStream(
       (CameraImage image) => _handleFrame(image, null),
@@ -393,4 +545,15 @@ class _ZxingTabState extends State<ZxingTab>
   String get _modeLabel {
     return _scanMode == ScanMode.single ? 'Single Code' : 'Multi Code';
   }
+
+  static const int _compositeCandidateFormats =
+      Format.code128 |
+      Format.ean8 |
+      Format.ean13 |
+      Format.upca |
+      Format.upce |
+      Format.dataBar |
+      Format.dataBarExpanded |
+      CustomFormat.dataBarLimited |
+      Format.pdf417;
 }

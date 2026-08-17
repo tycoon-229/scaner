@@ -1,8 +1,22 @@
+import groovy.json.JsonSlurper
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+fun flutterPackageRoot(packageName: String): File {
+    val packageConfig = file("../../.dart_tool/package_config.json")
+    val parsed = JsonSlurper().parse(packageConfig) as Map<*, *>
+    val packages = parsed["packages"] as List<*>
+    val entry = packages
+        .filterIsInstance<Map<*, *>>()
+        .first { it["name"] == packageName }
+    val rootUri = entry["rootUri"] as String
+    return File(URI(rootUri))
 }
 
 android {
@@ -28,6 +42,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DFLUTTER_ZXING_SRC_DIR=${flutterPackageRoot("flutter_zxing").resolve("src").absolutePath}",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                )
+            }
+        }
     }
 
     buildTypes {
@@ -35,6 +58,12 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 }

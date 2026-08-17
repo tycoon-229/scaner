@@ -13,6 +13,10 @@
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		75A000011F4D4D6C8D510001 /* MsiNativeDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A000031F4D4D6C8D510001 /* MsiNativeDecoder.swift */; };
 		75A000021F4D4D6C8D510001 /* MsiScannerChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A000041F4D4D6C8D510001 /* MsiScannerChannel.swift */; };
+		75A000051F4D4D6C8D510001 /* Gs1CompositeNativeDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A000071F4D4D6C8D510001 /* Gs1CompositeNativeDecoder.swift */; };
+		75A000061F4D4D6C8D510001 /* Gs1CompositeScannerChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A000081F4D4D6C8D510001 /* Gs1CompositeScannerChannel.swift */; };
+		75A000091F4D4D6C8D510001 /* NativeScannerChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A0000B1F4D4D6C8D510001 /* NativeScannerChannel.swift */; };
+		75A0000A1F4D4D6C8D510001 /* NativeScannerRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A0000C1F4D4D6C8D510001 /* NativeScannerRegistry.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		7FB41740B3C68A782846E8B5 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 13CFCD17B435F023B0BD825C /* Pods_RunnerTests.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
@@ -55,8 +59,12 @@
 		4BBAC47F6E7968BC1062EDA2 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		75A000031F4D4D6C8D510001 /* MsiNativeDecoder.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MsiNativeDecoder.swift; sourceTree = "<group>"; };
-		75A000041F4D4D6C8D510001 /* MsiScannerChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MsiScannerChannel.swift; sourceTree = "<group>"; };
+		75A000031F4D4D6C8D510001 /* MsiNativeDecoder.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/MSI/MsiNativeDecoder.swift; sourceTree = "<group>"; };
+		75A000041F4D4D6C8D510001 /* MsiScannerChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/MSI/MsiScannerChannel.swift; sourceTree = "<group>"; };
+		75A000071F4D4D6C8D510001 /* Gs1CompositeNativeDecoder.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/GS1/Gs1CompositeNativeDecoder.swift; sourceTree = "<group>"; };
+		75A000081F4D4D6C8D510001 /* Gs1CompositeScannerChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/GS1/Gs1CompositeScannerChannel.swift; sourceTree = "<group>"; };
+		75A0000B1F4D4D6C8D510001 /* NativeScannerChannel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/Platform/NativeScannerChannel.swift; sourceTree = "<group>"; };
+		75A0000C1F4D4D6C8D510001 /* NativeScannerRegistry.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeScanners/Platform/NativeScannerRegistry.swift; sourceTree = "<group>"; };
 		782233178AD220AE7A2213CC /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -145,6 +153,10 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
+				75A0000B1F4D4D6C8D510001 /* NativeScannerChannel.swift */,
+				75A0000C1F4D4D6C8D510001 /* NativeScannerRegistry.swift */,
+				75A000071F4D4D6C8D510001 /* Gs1CompositeNativeDecoder.swift */,
+				75A000081F4D4D6C8D510001 /* Gs1CompositeScannerChannel.swift */,
 				75A000031F4D4D6C8D510001 /* MsiNativeDecoder.swift */,
 				75A000041F4D4D6C8D510001 /* MsiScannerChannel.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
@@ -393,6 +405,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				75A000091F4D4D6C8D510001 /* NativeScannerChannel.swift in Sources */,
+				75A0000A1F4D4D6C8D510001 /* NativeScannerRegistry.swift in Sources */,
+				75A000051F4D4D6C8D510001 /* Gs1CompositeNativeDecoder.swift in Sources */,
+				75A000061F4D4D6C8D510001 /* Gs1CompositeScannerChannel.swift in Sources */,
 				75A000011F4D4D6C8D510001 /* MsiNativeDecoder.swift in Sources */,
 				75A000021F4D4D6C8D510001 /* MsiScannerChannel.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
