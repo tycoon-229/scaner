@@ -145,10 +145,11 @@ class _ZxingTabState extends State<ZxingTab>
               onTimeout: () => Codes(),
             );
 
+        bool hasNewCode = false;
+        int newCodeCount = 0;
+        int duplicateCodeCount = 0;
+
         if (res.codes.isNotEmpty) {
-          bool hasNewCode = false;
-          int newCodeCount = 0;
-          int duplicateCodeCount = 0;
           for (final Code c in res.codes) {
             if (c.isValid && c.text != null && c.text!.isNotEmpty) {
               hasDecodedCode = true;
@@ -168,13 +169,28 @@ class _ZxingTabState extends State<ZxingTab>
             hasNewCode = true;
             newCodeCount++;
           }
+        }
+
+        final Gs1CompositeNativeResult nativeCompositeResult =
+            await _scanNativeCompositeFromFrame(image);
+        if (nativeCompositeResult.hasResult) {
+          hasDecodedCode = true;
+          if (_addNativeCompositeResult(nativeCompositeResult)) {
+            hasNewCode = true;
+            newCodeCount++;
+          } else {
+            duplicateCodeCount++;
+          }
+        }
+
+        if (newCodeCount > 0 || duplicateCodeCount > 0) {
           _monitor.recordResults(
             uniqueCount: newCodeCount,
             duplicateCount: duplicateCodeCount,
           );
-          if (hasNewCode && mounted) {
-            setState(() {});
-          }
+        }
+        if (hasNewCode && mounted) {
+          setState(() {});
         }
       } else {
         final Gs1CompositeNativeResult nativeCompositeResult =
@@ -480,6 +496,11 @@ class _ZxingTabState extends State<ZxingTab>
       imageHeight: image.height,
       rowStride: image.planes.first.bytesPerRow,
       imageFormatGroup: image.format.group.name,
+    ).timeout(
+      const Duration(milliseconds: 1200),
+      onTimeout: () => const Gs1CompositeNativeResult.empty(
+        warning: 'GS1 Composite native scan timed out',
+      ),
     );
   }
 
@@ -493,6 +514,18 @@ class _ZxingTabState extends State<ZxingTab>
       _scannedEntries,
       ScanEntry(assembly.title, assembly.toDisplayText()),
     );
+  }
+
+  bool _addNativeCompositeResult(Gs1CompositeNativeResult result) {
+    final String? text = result.text;
+    if (!result.hasResult || text == null || text.isEmpty) return false;
+
+    final String typeEstimate = result.typeEstimate?.trim() ?? '';
+    final String title = typeEstimate.isEmpty
+        ? 'GS1 Composite Native POC'
+        : 'GS1 Composite Native POC ($typeEstimate)';
+
+    return addUniqueScanEntry(_scannedEntries, ScanEntry(title, text));
   }
 
   Code _createCompositeCode(Gs1CompositeAssembly assembly) {
