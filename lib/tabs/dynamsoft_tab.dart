@@ -96,6 +96,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   /// Single scan result (Key = formatName, Value = text)
   ScanEntry? _singleResult;
+  ScanEntry? _pendingLinearCarrier;
+  DateTime? _pendingLinearCarrierAt;
 
   ScanMode _scanMode = ScanMode.single;
   bool _showMultiResultScreen = false;
@@ -144,6 +146,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       setState(() {
         _singleResult = null;
         _clearMultiResults();
+        _clearPendingLinearCarrier();
       });
       _monitor.startSession(modeLabel: _modeLabel);
     }
@@ -181,12 +184,20 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
       hasDecodedCode = true;
       if (_scanMode == ScanMode.single) {
-        // Single: take first → show result → pause camera
-        final BarcodeResultItem first = barcodes.first;
+        final BarcodeResultItem? selected = _selectSingleBarcode(barcodes);
+        if (selected == null) return false;
+
+        final ScanEntry entry = _entryForBarcode(selected);
+        if (_shouldWaitForComposite(selected, entry)) {
+          hasDecodedCode = false;
+          return false;
+        }
+
+        _clearPendingLinearCarrier();
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
-            _singleResult = _entryForBarcode(first);
+            _singleResult = entry;
           });
         }
         return true; // CameraScannerWidget auto-pauses stream
@@ -196,6 +207,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         int newCodeCount = 0;
         int duplicateCodeCount = 0;
         for (final BarcodeResultItem b in barcodes) {
+          if (_isLikelyPartialCompositeCarrier(b)) continue;
           final ScanEntry e = _entryForBarcode(b);
           if (addUniqueScanEntry(_scannedEntries, e)) {
             hasNew = true;
@@ -248,11 +260,15 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
       if (!mounted) return;
 
-      if (barcodes.isNotEmpty) {
+      final BarcodeResultItem? selected = _selectSingleBarcode(
+        barcodes,
+        allowPartialCarrier: false,
+      );
+      if (selected != null) {
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
         setState(() {
-          _singleResult = _entryForBarcode(barcodes.first);
+          _singleResult = _entryForBarcode(selected);
         });
       } else {
         showScannerMessage(context, 'No valid code found in the image');
@@ -391,6 +407,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       _scanMode = mode;
       _singleResult = null;
       _clearMultiResults();
+      _clearPendingLinearCarrier();
     });
     _monitor.startSession(modeLabel: _modeLabel);
   }
@@ -415,6 +432,65 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     );
 
     return ScanEntry(formatName, gs1Text ?? rawText);
+  }
+
+  BarcodeResultItem? _selectSingleBarcode(
+    List<BarcodeResultItem> barcodes, {
+    bool allowPartialCarrier = true,
+  }) {
+    if (barcodes.isEmpty) return null;
+
+    for (final BarcodeResultItem barcode in barcodes) {
+      if (_isCompositeResult(barcode)) return barcode;
+    }
+
+    for (final BarcodeResultItem barcode in barcodes) {
+      if (allowPartialCarrier || !_isLikelyPartialCompositeCarrier(barcode)) {
+        return barcode;
+      }
+    }
+
+    return null;
+  }
+
+  bool _shouldWaitForComposite(BarcodeResultItem barcode, ScanEntry entry) {
+    if (!_isLikelyPartialCompositeCarrier(barcode)) return false;
+
+    final DateTime now = DateTime.now();
+    if (_pendingLinearCarrier?.value != entry.value) {
+      _pendingLinearCarrier = entry;
+      _pendingLinearCarrierAt = now;
+      return true;
+    }
+
+    final DateTime firstSeen = _pendingLinearCarrierAt ?? now;
+    return now.difference(firstSeen) < const Duration(milliseconds: 1800);
+  }
+
+  bool _isCompositeResult(BarcodeResultItem barcode) {
+    final String formatName = barcode.formatString.toUpperCase();
+    return formatName.contains('COMPOSITE') ||
+        formatName.contains('GS1_COMPOSITE') ||
+        (_looksLikeGs1(formatName, barcode.text) &&
+            Gs1ElementStringParser.parse(barcode.text).length > 1);
+  }
+
+  bool _isLikelyPartialCompositeCarrier(BarcodeResultItem barcode) {
+    final String formatName = barcode.formatString.toUpperCase();
+    if (!formatName.contains('CODE_128') && !formatName.contains('CODE128')) {
+      return false;
+    }
+
+    final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+      barcode.text,
+      fallbackFormat: formatName.toZxingFormat,
+    );
+    return elements.length == 1 && elements.single.ai == '01';
+  }
+
+  void _clearPendingLinearCarrier() {
+    _pendingLinearCarrier = null;
+    _pendingLinearCarrierAt = null;
   }
 
   bool _looksLikeGs1(String formatName, String text) {
