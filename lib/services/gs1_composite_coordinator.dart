@@ -3,38 +3,42 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 
-import 'package:poc_multi_scan/services/msi_scanner_service.dart';
+import 'package:poc_multi_scan/services/gs1_composite_scanner_service.dart';
 
-class MsiScanCandidate {
-  const MsiScanCandidate({
+class Gs1CompositeScanCandidate {
+  const Gs1CompositeScanCandidate({
     required this.text,
+    required this.primary1dText,
+    required this.composite2dText,
+    required this.symbology,
     required this.durationMs,
     required this.source,
   });
 
   final String text;
+  final String? primary1dText;
+  final String? composite2dText;
+  final String symbology;
   final int durationMs;
   final String source;
 }
 
-class MsiScanCoordinator {
-  MsiScanCoordinator({
+class Gs1CompositeCoordinator {
+  Gs1CompositeCoordinator({
     this.minAttemptInterval = const Duration(milliseconds: 100),
     this.requiredConsecutiveMatches = 1,
-    this.checksumScheme = MsiChecksumScheme.auto,
   });
 
   final Duration minAttemptInterval;
   final int requiredConsecutiveMatches;
-  final MsiChecksumScheme checksumScheme;
 
   bool _isProcessing = false;
   DateTime _lastAttemptAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastCandidateText;
   int _candidateMatchCount = 0;
 
-  /// Decodes MSI barcode directly from live Flutter [CameraImage] frame.
-  Future<MsiScanCandidate?> scanCameraImage(CameraImage image) async {
+  /// Decodes GS1 Composite barcode directly from live Flutter [CameraImage] frame.
+  Future<Gs1CompositeScanCandidate?> scanCameraImage(CameraImage image) async {
     if (_isProcessing) return null;
     if (DateTime.now().difference(_lastAttemptAt) < minAttemptInterval) {
       return null;
@@ -49,19 +53,22 @@ class MsiScanCoordinator {
       final Uint8List yuvBytes = image.planes[0].bytes;
       final int rowStride = image.planes[0].bytesPerRow;
 
-      final MsiScanResult result = await MsiScannerService.decodeYuvLuminance(
+      final Gs1CompositeScanResult result =
+          await Gs1CompositeScannerService.decodeYuvLuminance(
         yuvBytes,
         imageWidth: image.width,
         imageHeight: image.height,
         rowStride: rowStride,
-        checksumScheme: checksumScheme,
       );
 
       if (!result.hasResult) return null;
       if (!_isConfirmedCandidate(result.text!)) return null;
 
-      return MsiScanCandidate(
+      return Gs1CompositeScanCandidate(
         text: result.text!,
+        primary1dText: result.primary1dText,
+        composite2dText: result.composite2dText,
+        symbology: result.symbology,
         durationMs: result.durationMs,
         source: result.source,
       );
@@ -70,19 +77,22 @@ class MsiScanCoordinator {
     }
   }
 
-  /// Decodes MSI barcode from a local image file path.
-  Future<MsiScanCandidate?> scanImageFile(String path) async {
+  /// Decodes GS1 Composite barcode from a local image file path.
+  Future<Gs1CompositeScanCandidate?> scanImageFile(String path) async {
     final File imageFile = File(path);
     if (!await imageFile.exists()) return null;
 
-    final MsiScanResult result = await MsiScannerService.decodeBitmapBytes(
+    final Gs1CompositeScanResult result =
+        await Gs1CompositeScannerService.decodeBitmapBytes(
       await imageFile.readAsBytes(),
-      checksumScheme: checksumScheme,
     );
 
     if (!result.hasResult) return null;
-    return MsiScanCandidate(
+    return Gs1CompositeScanCandidate(
       text: result.text!,
+      primary1dText: result.primary1dText,
+      composite2dText: result.composite2dText,
+      symbology: result.symbology,
       durationMs: result.durationMs,
       source: result.source,
     );
@@ -112,4 +122,3 @@ class MsiScanCoordinator {
     return true;
   }
 }
-

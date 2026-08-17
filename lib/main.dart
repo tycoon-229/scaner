@@ -4,6 +4,7 @@ import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:poc_multi_scan/config/scan_result_preview.dart';
 import 'package:poc_multi_scan/theme/app_theme.dart';
 import 'package:poc_multi_scan/tabs/dynamsoft_tab.dart';
+import 'package:poc_multi_scan/tabs/gs1_composite_tab.dart';
 import 'package:poc_multi_scan/tabs/scandit_tab.dart';
 import 'package:poc_multi_scan/tabs/zxing_tab.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
@@ -54,20 +55,31 @@ class _DemoPageState extends State<DemoPage> {
     }
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           toolbarHeight: 0,
           bottom: const TabBar(
+            isScrollable: true,
             tabs: [
               Tab(text: 'ZXing'),
               Tab(text: 'Dynamsoft'),
               Tab(text: 'Scandit'),
+              Tab(text: 'GS1 Composite'),
             ],
           ),
         ),
-        body: TabBarView(children: [ZxingTab(), DynamsoftTab(), ScanditTab()]),
+        body: TabBarView(
+          children: [
+            ZxingTab(),
+            DynamsoftTab(),
+            ScanditTab(),
+            Gs1CompositeTab(),
+          ],
+        ),
       ),
     );
   }
 }
+
+

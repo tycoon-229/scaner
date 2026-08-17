@@ -327,17 +327,17 @@ class _ZxingTabState extends State<ZxingTab>
   }
 
   Future<bool> _processMsiScanFallback(Code? code) async {
-    if (code == null) return false;
-
-    final MsiScanCandidate? candidate = await _msiScanCoordinator
-        .scanProcessedImage(code);
-    if (candidate == null || !mounted) return false;
-
-    _monitor.recordResults(uniqueCount: 1);
-    setState(() {
-      result = _createMsiCode(candidate);
-    });
-    return true;
+    // if (code == null) return false;
+    //
+    // final MsiScanCandidate? candidate = await _msiScanCoordinator
+    //     .scanProcessedImage(code);
+    // if (candidate == null || !mounted) return false;
+    //
+    // _monitor.recordResults(uniqueCount: 1);
+    // setState(() {
+    //   result = _createMsiCode(candidate);
+    // });
+    return false;
   }
 
   Future<bool> _processMsiImageFileFallback(String path) async {
