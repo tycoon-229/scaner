@@ -257,6 +257,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         );
 
         if (_scanMode == ScanMode.single) {
+          logScanResult(
+            'Dynamsoft',
+            entry,
+            mode: _modeLabel,
+            origin: 'live-camera/composite',
+          );
           _clearPendingLinearCarrier();
           _monitor.recordResults(uniqueCount: 1);
           if (mounted) {
@@ -270,6 +276,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           int newCodeCount = 0;
           int duplicateCodeCount = 0;
           if (addUniqueScanEntry(_scannedEntries, entry)) {
+            logScanResult(
+              'Dynamsoft',
+              entry,
+              mode: _modeLabel,
+              origin: 'live-camera/composite',
+            );
             hasNew = true;
             newCodeCount++;
           } else {
@@ -294,6 +306,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           return false;
         }
 
+        logScanResult(
+          'Dynamsoft',
+          entry,
+          mode: _modeLabel,
+          origin: 'live-camera',
+        );
         _clearPendingLinearCarrier();
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
@@ -311,6 +329,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           if (_isLikelyPartialCompositeCarrier(b)) continue;
           final ScanEntry e = _entryForBarcode(b);
           if (addUniqueScanEntry(_scannedEntries, e)) {
+            logScanResult(
+              'Dynamsoft',
+              e,
+              mode: _modeLabel,
+              origin: 'live-camera',
+            );
             hasNew = true;
             newCodeCount++;
           } else {
@@ -370,11 +394,18 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       if (compositeAssembly != null) {
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
+        final ScanEntry entry = ScanEntry(
+          compositeAssembly.title,
+          compositeAssembly.resultText,
+        );
+        logScanResult(
+          'Dynamsoft',
+          entry,
+          mode: _modeLabel,
+          origin: 'gallery/composite',
+        );
         setState(() {
-          _singleResult = ScanEntry(
-            compositeAssembly.title,
-            compositeAssembly.resultText,
-          );
+          _singleResult = entry;
         });
         return;
       }
@@ -386,8 +417,10 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       if (selected != null) {
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
+        final ScanEntry entry = _entryForBarcode(selected);
+        logScanResult('Dynamsoft', entry, mode: _modeLabel, origin: 'gallery');
         setState(() {
-          _singleResult = _entryForBarcode(selected);
+          _singleResult = entry;
         });
       } else {
         showScannerMessage(context, 'No valid code found in the image');

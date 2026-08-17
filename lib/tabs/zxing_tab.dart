@@ -50,6 +50,10 @@ class _ZxingTabState extends State<ZxingTab>
   /// * `entry.value` -> decoded text string
   final List<ScanEntry> _scannedEntries = <ScanEntry>[];
 
+  ScanEntry? _pendingCompositeCarrier;
+  DateTime? _pendingCompositeCarrierAt;
+  DateTime? _lastEmptyCompositeLogAt;
+
   ScanMode _scanMode = ScanMode.single;
   bool _showMultiResultScreen = false;
 
@@ -70,6 +74,7 @@ class _ZxingTabState extends State<ZxingTab>
         result = null;
         _clearMultiResults();
       });
+      _clearPendingCompositeCarrier();
       _msiScanCoordinator.reset();
       _monitor.startSession(modeLabel: _modeLabel);
     }
@@ -157,6 +162,12 @@ class _ZxingTabState extends State<ZxingTab>
               hasDecodedCode = true;
 
               if (addUniqueScanEntry(_scannedEntries, entry)) {
+                logScanResult(
+                  'ZXing',
+                  entry,
+                  mode: _modeLabel,
+                  origin: 'live-camera',
+                );
                 hasNewCode = true;
                 newCodeCount++;
               } else {
@@ -193,49 +204,72 @@ class _ZxingTabState extends State<ZxingTab>
           setState(() {});
         }
       } else {
-        final Gs1CompositeNativeResult nativeCompositeResult =
-            await _scanNativeCompositeFromFrame(image);
-        if (nativeCompositeResult.hasResult) {
-          hasDecodedCode = true;
-          _monitor.recordResults(uniqueCount: 1);
-          if (mounted) {
-            setState(() {
-              result = _createNativeCompositeCode(nativeCompositeResult);
-            });
-          }
-          return true;
-        }
-
-        final Gs1CompositeAssembly? compositeAssembly =
-            await _scanCompositeFromFrame(image, params);
-        if (compositeAssembly != null) {
-          hasDecodedCode = true;
-          _monitor.recordResults(uniqueCount: 1);
-          if (mounted) {
-            setState(() {
-              result = _createCompositeCode(compositeAssembly);
-            });
-          }
-          return true;
-        }
-
-        final Code res = await zx
-            .processCameraImage(image, params)
-            .timeout(
-              const Duration(milliseconds: 1000),
-              onTimeout: () => Code(),
-            );
+        final Code res = await _scanSingleFromFrame(image, params);
         final ScanEntry? entry = _scanEntryForCode(res);
         if (entry != null) {
+          final bool likelyCompositeCarrier = _isLikelyCompositeLinearCarrier(
+            res,
+            entry,
+          );
+          if (likelyCompositeCarrier) {
+            final bool shouldRetryComposite = _shouldWaitForCompositeRetry(
+              entry,
+            );
+            final bool hasCompositeResult = await _trySetSingleCompositeResult(
+              image,
+              params,
+              origin: 'live-camera',
+            );
+            if (hasCompositeResult) {
+              hasDecodedCode = true;
+              return true;
+            }
+
+            if (shouldRetryComposite && !_isCompositeRetryExpired(entry)) {
+              return false;
+            }
+            if (shouldRetryComposite) {
+              debugPrint(
+                '[ZXing] PDF417 component not found during retry window; returning current Code128 carrier: format="${entry.key}", text="${entry.value}"',
+              );
+              _clearPendingCompositeCarrier();
+            }
+          } else {
+            _clearPendingCompositeCarrier();
+          }
+
           hasDecodedCode = true;
           _monitor.recordResults(uniqueCount: 1);
           if (mounted) {
             setState(() {
+              logScanResult(
+                'ZXing',
+                entry,
+                mode: _modeLabel,
+                origin: 'live-camera',
+              );
               result = _createCodeFromEntry(res, entry);
             });
           }
           return true; // Single scan success -> pause stream
         }
+
+        final bool hasCompositeResult = await _trySetSingleCompositeResult(
+          image,
+          params,
+          origin: 'live-camera/no-linear',
+        );
+        if (hasCompositeResult) {
+          hasDecodedCode = true;
+          return true;
+        }
+
+        final bool hasPendingCarrierResult = _trySetPendingCarrierResult();
+        if (hasPendingCarrierResult) {
+          hasDecodedCode = true;
+          return true;
+        }
+
         final bool hasMsiFallbackResult = await _processMsiScanFallback(res);
         if (hasMsiFallbackResult) {
           hasDecodedCode = true;
@@ -282,7 +316,14 @@ class _ZxingTabState extends State<ZxingTab>
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
-            result = _createNativeCompositeCode(nativeCompositeResult);
+            final Code code = _createNativeCompositeCode(nativeCompositeResult);
+            logScanResult(
+              'ZXing',
+              ScanEntry(code.formatName ?? '', code.text ?? ''),
+              mode: _modeLabel,
+              origin: 'gallery/native-composite',
+            );
+            result = code;
           });
         }
         return;
@@ -308,7 +349,14 @@ class _ZxingTabState extends State<ZxingTab>
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
-            result = _createCompositeCode(compositeAssembly);
+            final Code code = _createCompositeCode(compositeAssembly);
+            logScanResult(
+              'ZXing',
+              ScanEntry(code.formatName ?? '', code.text ?? ''),
+              mode: _modeLabel,
+              origin: 'gallery/composite',
+            );
+            result = code;
           });
         }
         return;
@@ -321,6 +369,7 @@ class _ZxingTabState extends State<ZxingTab>
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
+            logScanResult('ZXing', entry, mode: _modeLabel, origin: 'gallery');
             result = _createCodeFromEntry(res, entry);
           });
         }
@@ -368,6 +417,7 @@ class _ZxingTabState extends State<ZxingTab>
           setState(() {
             result = null;
           });
+          _clearPendingCompositeCarrier();
           _msiScanCoordinator.reset();
           _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
@@ -382,6 +432,7 @@ class _ZxingTabState extends State<ZxingTab>
         monitorSnapshot: _monitor.snapshot(resultCount: _scannedEntries.length),
         onScanAgain: () {
           setState(_clearMultiResults);
+          _clearPendingCompositeCarrier();
           _msiScanCoordinator.reset();
           _monitor.startSession(modeLabel: _modeLabel);
           _resumeScan();
@@ -427,7 +478,14 @@ class _ZxingTabState extends State<ZxingTab>
 
     _monitor.recordResults(uniqueCount: 1);
     setState(() {
-      result = _createMsiCode(candidate);
+      final Code code = _createMsiCode(candidate);
+      logScanResult(
+        'ZXing',
+        ScanEntry(code.formatName ?? '', code.text ?? ''),
+        mode: _modeLabel,
+        origin: 'live-camera/msi-fallback',
+      );
+      result = code;
     });
     return true;
   }
@@ -439,7 +497,14 @@ class _ZxingTabState extends State<ZxingTab>
     if (candidate == null || !mounted) return false;
 
     setState(() {
-      result = _createMsiCode(candidate);
+      final Code code = _createMsiCode(candidate);
+      logScanResult(
+        'ZXing',
+        ScanEntry(code.formatName ?? '', code.text ?? ''),
+        mode: _modeLabel,
+        origin: 'gallery/msi-fallback',
+      );
+      result = code;
     });
     return true;
   }
@@ -453,36 +518,287 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
+  Future<Code> _scanSingleFromFrame(
+    CameraImage image,
+    DecodeParams baseParams,
+  ) async {
+    for (final MapEntry<String, DecodeParams> pass in _singleDecodePasses(
+      image,
+      baseParams,
+    )) {
+      final Code code = await zx
+          .processCameraImage(image, pass.value)
+          .timeout(const Duration(milliseconds: 650), onTimeout: () => Code());
+      final ScanEntry? entry = _scanEntryForCode(code);
+      if (entry != null) {
+        if (pass.key != 'crop') {
+          debugPrint(
+            '[ZXing] Single decode fallback pass="${pass.key}" found: format="${entry.key}", text="${entry.value}"',
+          );
+        }
+        return code;
+      }
+    }
+
+    return Code();
+  }
+
+  List<MapEntry<String, DecodeParams>> _singleDecodePasses(
+    CameraImage image,
+    DecodeParams baseParams,
+  ) {
+    DecodeParams pass({
+      required int cropLeft,
+      required int cropTop,
+      required int cropWidth,
+      required int cropHeight,
+      int maxSize = 1600,
+    }) {
+      return DecodeParams(
+        imageFormat: baseParams.imageFormat,
+        format: Format.any,
+        width: image.width,
+        height: image.height,
+        cropLeft: cropLeft,
+        cropTop: cropTop,
+        cropWidth: cropWidth,
+        cropHeight: cropHeight,
+        tryHarder: true,
+        tryRotate: true,
+        tryInverted: true,
+        tryDownscale: true,
+        isMultiScan: false,
+        maxSize: maxSize,
+      );
+    }
+
+    final List<MapEntry<String, DecodeParams>> passes =
+        <MapEntry<String, DecodeParams>>[
+          MapEntry<String, DecodeParams>('crop', baseParams),
+        ];
+
+    final bool baseIsFullFrame =
+        baseParams.cropLeft == 0 &&
+        baseParams.cropTop == 0 &&
+        baseParams.cropWidth == image.width &&
+        baseParams.cropHeight == image.height;
+    if (baseIsFullFrame) return passes;
+
+    final int upperHeight = (image.height * 0.70).round().clamp(
+      1,
+      image.height,
+    );
+    final int middleTop = (image.height * 0.10).round().clamp(
+      0,
+      image.height - 1,
+    );
+    final int middleHeight = (image.height * 0.82).round().clamp(
+      1,
+      image.height - middleTop,
+    );
+
+    passes.addAll(<MapEntry<String, DecodeParams>>[
+      MapEntry<String, DecodeParams>(
+        'full',
+        pass(
+          cropLeft: 0,
+          cropTop: 0,
+          cropWidth: image.width,
+          cropHeight: image.height,
+        ),
+      ),
+      MapEntry<String, DecodeParams>(
+        'upper',
+        pass(
+          cropLeft: 0,
+          cropTop: 0,
+          cropWidth: image.width,
+          cropHeight: upperHeight,
+        ),
+      ),
+      MapEntry<String, DecodeParams>(
+        'middle',
+        pass(
+          cropLeft: 0,
+          cropTop: middleTop,
+          cropWidth: image.width,
+          cropHeight: middleHeight,
+        ),
+      ),
+    ]);
+
+    return passes;
+  }
+
+  Future<bool> _trySetSingleCompositeResult(
+    CameraImage image,
+    DecodeParams params, {
+    required String origin,
+  }) async {
+    final Gs1CompositeNativeResult nativeCompositeResult =
+        await _scanNativeCompositeFromFrame(image);
+    if (nativeCompositeResult.hasResult) {
+      _monitor.recordResults(uniqueCount: 1);
+      if (mounted) {
+        setState(() {
+          final Code code = _createNativeCompositeCode(nativeCompositeResult);
+          logScanResult(
+            'ZXing',
+            ScanEntry(code.formatName ?? '', code.text ?? ''),
+            mode: _modeLabel,
+            origin: '$origin/native-composite',
+          );
+          _clearPendingCompositeCarrier();
+          result = code;
+        });
+      }
+      return true;
+    }
+
+    final Gs1CompositeAssembly? compositeAssembly =
+        await _scanCompositeFromFrame(image, params);
+    if (compositeAssembly != null) {
+      _monitor.recordResults(uniqueCount: 1);
+      if (mounted) {
+        setState(() {
+          final Code code = _createCompositeCode(compositeAssembly);
+          logScanResult(
+            'ZXing',
+            ScanEntry(code.formatName ?? '', code.text ?? ''),
+            mode: _modeLabel,
+            origin: '$origin/composite',
+          );
+          _clearPendingCompositeCarrier();
+          result = code;
+        });
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   Future<Gs1CompositeAssembly?> _scanCompositeFromFrame(
     CameraImage image,
     DecodeParams baseParams,
   ) async {
-    final Codes res = await zx
-        .processCameraImageMulti(
-          image,
-          DecodeParams(
-            imageFormat: baseParams.imageFormat,
-            format: _compositeCandidateFormats,
-            width: baseParams.width,
-            height: baseParams.height,
-            cropLeft: baseParams.cropLeft,
-            cropTop: baseParams.cropTop,
-            cropWidth: baseParams.cropWidth,
-            cropHeight: baseParams.cropHeight,
-            tryHarder: true,
-            tryRotate: true,
-            tryInverted: true,
-            tryDownscale: true,
-            isMultiScan: true,
-            maxNumberOfSymbols: 8,
-            maxSize: 1200,
-          ),
-        )
-        .timeout(const Duration(milliseconds: 1200), onTimeout: () => Codes());
+    final List<Code> candidates = <Code>[];
 
-    return _gs1CompositeAssembler.assemble(
-      res.codes.map(_detectedCodeFromZxing).toList(),
+    for (final DecodeParams params in _compositeDecodePasses(
+      image,
+      baseParams,
+    )) {
+      final Codes res = await zx
+          .processCameraImageMulti(image, params)
+          .timeout(const Duration(milliseconds: 800), onTimeout: () => Codes());
+
+      candidates.addAll(res.codes);
+      final Gs1CompositeAssembly? assembly = _gs1CompositeAssembler.assemble(
+        candidates.map(_detectedCodeFromZxing).toList(),
+      );
+      if (assembly != null) {
+        return assembly;
+      }
+    }
+
+    _logCompositeCandidates(candidates);
+    return null;
+  }
+
+  List<DecodeParams> _compositeDecodePasses(
+    CameraImage image,
+    DecodeParams baseParams,
+  ) {
+    DecodeParams pass({
+      required int cropLeft,
+      required int cropTop,
+      required int cropWidth,
+      required int cropHeight,
+      int maxSize = 1600,
+    }) {
+      return DecodeParams(
+        imageFormat: baseParams.imageFormat,
+        format: _compositeCandidateFormats,
+        width: image.width,
+        height: image.height,
+        cropLeft: cropLeft,
+        cropTop: cropTop,
+        cropWidth: cropWidth,
+        cropHeight: cropHeight,
+        tryHarder: true,
+        tryRotate: true,
+        tryInverted: true,
+        tryDownscale: true,
+        isMultiScan: true,
+        maxNumberOfSymbols: 8,
+        maxSize: maxSize,
+      );
+    }
+
+    final int upperHeight = (image.height * 0.65).round().clamp(
+      1,
+      image.height,
     );
+    final int middleTop = (image.height * 0.12).round().clamp(
+      0,
+      image.height - 1,
+    );
+    final int middleHeight = (image.height * 0.76).round().clamp(
+      1,
+      image.height - middleTop,
+    );
+
+    final List<DecodeParams> passes = <DecodeParams>[
+      pass(
+        cropLeft: 0,
+        cropTop: 0,
+        cropWidth: image.width,
+        cropHeight: image.height,
+      ),
+      pass(
+        cropLeft: 0,
+        cropTop: 0,
+        cropWidth: image.width,
+        cropHeight: upperHeight,
+      ),
+      pass(
+        cropLeft: 0,
+        cropTop: middleTop,
+        cropWidth: image.width,
+        cropHeight: middleHeight,
+      ),
+    ];
+
+    if (baseParams.cropWidth > 0 && baseParams.cropHeight > 0) {
+      final int cropLeft = baseParams.cropLeft;
+      final int cropTop = baseParams.cropTop;
+      final int cropWidth = baseParams.cropWidth;
+      final int cropHeight = baseParams.cropHeight;
+      final int expandedTop = (cropTop - cropHeight * 0.65).round().clamp(
+        0,
+        image.height - 1,
+      );
+      final int expandedBottom = (cropTop + cropHeight).clamp(1, image.height);
+
+      passes.addAll(<DecodeParams>[
+        pass(
+          cropLeft: cropLeft,
+          cropTop: cropTop,
+          cropWidth: cropWidth,
+          cropHeight: cropHeight,
+          maxSize: 1200,
+        ),
+        pass(
+          cropLeft: cropLeft,
+          cropTop: expandedTop,
+          cropWidth: cropWidth,
+          cropHeight: expandedBottom - expandedTop,
+          maxSize: 1400,
+        ),
+      ]);
+    }
+
+    return passes;
   }
 
   Future<Gs1CompositeNativeResult> _scanNativeCompositeFromFrame(
@@ -514,10 +830,17 @@ class _ZxingTabState extends State<ZxingTab>
     );
     if (assembly == null) return false;
 
-    return addUniqueScanEntry(
-      _scannedEntries,
-      ScanEntry(assembly.title, assembly.resultText),
-    );
+    final ScanEntry entry = ScanEntry(assembly.title, assembly.resultText);
+    final bool added = addUniqueScanEntry(_scannedEntries, entry);
+    if (added) {
+      logScanResult(
+        'ZXing',
+        entry,
+        mode: _modeLabel,
+        origin: 'live-camera/composite',
+      );
+    }
+    return added;
   }
 
   bool _addNativeCompositeResult(Gs1CompositeNativeResult result) {
@@ -529,7 +852,17 @@ class _ZxingTabState extends State<ZxingTab>
         ? 'GS1 Composite Native POC'
         : 'GS1 Composite Native POC ($typeEstimate)';
 
-    return addUniqueScanEntry(_scannedEntries, ScanEntry(title, text));
+    final ScanEntry entry = ScanEntry(title, text);
+    final bool added = addUniqueScanEntry(_scannedEntries, entry);
+    if (added) {
+      logScanResult(
+        'ZXing',
+        entry,
+        mode: _modeLabel,
+        origin: 'live-camera/native-composite',
+      );
+    }
+    return added;
   }
 
   Gs1DetectedCode _detectedCodeFromZxing(Code code) {
@@ -619,6 +952,114 @@ class _ZxingTabState extends State<ZxingTab>
     return Gs1ElementStringParser.looksLikeEscapedBinaryControlPayload(text);
   }
 
+  bool _isLikelyCompositeLinearCarrier(Code code, ScanEntry entry) {
+    final String formatName = (code.formatName ?? entry.key).toUpperCase();
+    if (code.format != Format.code128 && !formatName.contains('CODE128')) {
+      return false;
+    }
+
+    final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+      entry.value,
+      fallbackFormat: Gs1DetectedFormat.code128,
+    );
+    return elements.length == 1 && elements.single.ai == '01';
+  }
+
+  bool _shouldWaitForCompositeRetry(ScanEntry entry) {
+    final DateTime now = DateTime.now();
+    if (_pendingCompositeCarrier?.value != entry.value) {
+      _pendingCompositeCarrier = entry;
+      _pendingCompositeCarrierAt = now;
+      debugPrint(
+        '[ZXing] Code128 looks like GS1 Composite carrier; retrying briefly for PDF417 component: format="${entry.key}", text="${entry.value}"',
+      );
+      return true;
+    }
+
+    final DateTime firstSeen = _pendingCompositeCarrierAt ?? now;
+    if (now.difference(firstSeen) < _compositeRetryDuration) {
+      return true;
+    }
+
+    debugPrint(
+      '[ZXing] PDF417 component not found during retry window; returning Code128 carrier: format="${entry.key}", text="${entry.value}"',
+    );
+    _clearPendingCompositeCarrier();
+    return false;
+  }
+
+  bool _isCompositeRetryExpired(ScanEntry entry) {
+    final DateTime? firstSeen = _pendingCompositeCarrierAt;
+    if (_pendingCompositeCarrier?.value != entry.value || firstSeen == null) {
+      return false;
+    }
+    return DateTime.now().difference(firstSeen) >= _compositeRetryDuration;
+  }
+
+  bool _trySetPendingCarrierResult() {
+    final ScanEntry? entry = _pendingCompositeCarrier;
+    final DateTime? firstSeen = _pendingCompositeCarrierAt;
+    if (entry == null || firstSeen == null) return false;
+    if (DateTime.now().difference(firstSeen) < _compositeRetryDuration) {
+      return false;
+    }
+
+    debugPrint(
+      '[ZXing] PDF417 component not found during retry window; returning pending Code128 carrier: format="${entry.key}", text="${entry.value}"',
+    );
+    _clearPendingCompositeCarrier();
+    _monitor.recordResults(uniqueCount: 1);
+    if (mounted) {
+      setState(() {
+        logScanResult(
+          'ZXing',
+          entry,
+          mode: _modeLabel,
+          origin: 'live-camera/pending-carrier',
+        );
+        result = Code(
+          text: entry.value,
+          format: Format.code128,
+          isValid: true,
+          duration: DateTime.now().difference(firstSeen).inMilliseconds,
+        );
+      });
+    }
+    return true;
+  }
+
+  void _clearPendingCompositeCarrier() {
+    _pendingCompositeCarrier = null;
+    _pendingCompositeCarrierAt = null;
+  }
+
+  void _logCompositeCandidates(List<Code> candidates) {
+    if (candidates.isEmpty) {
+      final DateTime now = DateTime.now();
+      final DateTime? lastLogAt = _lastEmptyCompositeLogAt;
+      if (lastLogAt == null ||
+          now.difference(lastLogAt) >= _emptyCompositeLogInterval) {
+        _lastEmptyCompositeLogAt = now;
+        debugPrint('[ZXing] Composite scan found no candidates.');
+      }
+      return;
+    }
+
+    final String summary = candidates
+        .where((Code code) => code.isValid && (code.text?.isNotEmpty ?? false))
+        .map(
+          (Code code) =>
+              '${code.formatName ?? code.format}: "${code.text ?? ''}"',
+        )
+        .join(' | ');
+    if (summary.isEmpty) {
+      debugPrint('[ZXing] Composite scan found only invalid candidates.');
+      return;
+    }
+
+    debugPrint('[ZXing] Composite candidates without pair: $summary');
+  }
+
   bool _looksLikeGs1Format(String formatName) {
     final String normalized = formatName.toUpperCase();
     return normalized.contains('GS1') || normalized.contains('COMPOSITE');
@@ -655,6 +1096,7 @@ class _ZxingTabState extends State<ZxingTab>
   }
 
   void _resetScanState() {
+    _clearPendingCompositeCarrier();
     _msiScanCoordinator.reset();
     _monitor.startSession(modeLabel: _modeLabel);
   }
@@ -691,4 +1133,7 @@ class _ZxingTabState extends State<ZxingTab>
       Format.dataBarExpanded |
       CustomFormat.dataBarLimited |
       Format.pdf417;
+
+  static const Duration _compositeRetryDuration = Duration(milliseconds: 900);
+  static const Duration _emptyCompositeLogInterval = Duration(seconds: 5);
 }

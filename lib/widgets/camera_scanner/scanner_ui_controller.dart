@@ -42,9 +42,14 @@ class ScannerUIController extends ChangeNotifier {
 
   /// Called by the widget when a new [CameraController] is ready.
   // ignore: use_setters_to_change_properties
-  void attachCameraController(CameraController? controller) {
+  void attachCameraController(
+    CameraController? controller, {
+    bool notify = true,
+  }) {
     _cameraController = controller;
-    notifyListeners();
+    if (notify) {
+      notifyListeners();
+    }
   }
 
   /// Handler attached by CameraScannerWidget for restarting camera and laser.
@@ -60,10 +65,13 @@ class ScannerUIController extends ChangeNotifier {
   void updateStreamingState({
     required bool isStreaming,
     required bool isPaused,
+    bool notify = true,
   }) {
     _isStreaming = isStreaming;
     _isPaused = isPaused;
-    notifyListeners();
+    if (notify) {
+      notifyListeners();
+    }
   }
 
   /// Restarts the camera stream, resets processing locks, and restarts the laser animation.

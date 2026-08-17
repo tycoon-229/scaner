@@ -38,6 +38,11 @@ class Gs1CompositeAssembly {
   ];
 
   String get resultText {
+    if (compositeElements.isEmpty &&
+        (compositeCode.text?.isNotEmpty ?? false)) {
+      return toDisplayText();
+    }
+
     final String formatted = Gs1ElementStringParser.formatElements(elements);
     return formatted.isEmpty ? toDisplayText() : formatted;
   }
@@ -121,9 +126,8 @@ class Gs1CompositeAssembler {
       }
     }
 
-    if (best == null) {
-      return null;
-    }
+    best ??= _fallbackPairAfterGeometryReject(linearCodes, compositeCodes);
+    if (best == null) return null;
 
     final List<String> warnings = <String>[...best.warnings];
 
@@ -229,6 +233,41 @@ class Gs1CompositeAssembler {
         'ZXing did not return complete geometry for at least one component; pair is based on one linear + one 2D candidate only.',
       ],
     );
+  }
+
+  _PairCandidate? _fallbackPairAfterGeometryReject(
+    List<Gs1DetectedCode> linearCodes,
+    List<Gs1DetectedCode> compositeCodes,
+  ) {
+    if (linearCodes.isEmpty || compositeCodes.isEmpty) return null;
+
+    final Gs1DetectedCode? preferredLinear = _firstWhereOrNull(
+      linearCodes,
+      (Gs1DetectedCode code) => code.format == Gs1DetectedFormat.code128,
+    );
+    final Gs1DetectedCode? preferredComposite = _firstWhereOrNull(
+      compositeCodes,
+      (Gs1DetectedCode code) => code.format == Gs1DetectedFormat.pdf417,
+    );
+
+    return _PairCandidate(
+      linear: preferredLinear ?? linearCodes.first,
+      composite: preferredComposite ?? compositeCodes.first,
+      score: 0.25,
+      warnings: const <String>[
+        'Linear and 2D candidates were both detected, but geometry did not match. Pair is accepted as a fallback because decode passes may use different crop coordinate spaces.',
+      ],
+    );
+  }
+
+  Gs1DetectedCode? _firstWhereOrNull(
+    List<Gs1DetectedCode> codes,
+    bool Function(Gs1DetectedCode code) test,
+  ) {
+    for (final Gs1DetectedCode code in codes) {
+      if (test(code)) return code;
+    }
+    return null;
   }
 
   Rect? _rectFor(Gs1DetectedPosition? position) {

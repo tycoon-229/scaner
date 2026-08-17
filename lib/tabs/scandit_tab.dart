@@ -292,6 +292,12 @@ class _ScanditTabState extends State<ScanditTab>
     if (b != null && mounted && _singleResult == null) {
       final entry = _extractBarcodeResult(b);
       if (entry.value.isNotEmpty) {
+        logScanResult(
+          'Scandit',
+          entry,
+          mode: _modeLabel,
+          origin: 'live-camera',
+        );
         _monitor.recordNativeEvent(
           uniqueCount: 1,
           duplicateCount: 0,
@@ -315,6 +321,12 @@ class _ScanditTabState extends State<ScanditTab>
         final entry = _extractBarcodeResult(b);
         if (entry.value.isNotEmpty) {
           if (addUniqueScanEntry(_scannedEntries, entry)) {
+            logScanResult(
+              'Scandit',
+              entry,
+              mode: _modeLabel,
+              origin: 'live-camera',
+            );
             hasNew = true;
             newCodeCount++;
           } else {

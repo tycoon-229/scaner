@@ -33,7 +33,7 @@ SPEC CHECKSUMS:
   dynamsoft_capture_vision_flutter: 247631f10e56ac6e33c22f07510fe404248ccd8f
   DynamsoftBarcodeReaderBundle: 84c6dfb0d6b934f7a038c383463f8eb53537e946
   DynamsoftCaptureVisionBundle: 73079c45b424422fc4dca8110875037c0794da47
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
 
 PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
 

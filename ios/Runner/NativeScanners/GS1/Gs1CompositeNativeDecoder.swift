@@ -196,6 +196,16 @@ final class Gs1CompositeNativeDecoder {
       }
     }
 
+    var warnings = [
+      "Vision did not return a coalesced composite result; this result was paired by geometry.",
+    ]
+    if best == nil {
+      best = fallbackPairAfterGeometryReject(linearCodes: linearCodes, components: components)
+      warnings = [
+        "Vision detected both linear and 2D candidates, but geometry did not match. Pair is accepted as a fallback because observations may use different crop coordinate spaces.",
+      ]
+    }
+
     guard let best = best else { return nil }
 
     return makeAssembly(
@@ -205,9 +215,7 @@ final class Gs1CompositeNativeDecoder {
       typeEstimate: best.component.format == formatMicroPDF417
         ? "CC-A/CC-B candidate"
         : (best.linear.format == formatCode128 ? "CC-C candidate" : "Composite candidate"),
-      warnings: [
-        "Vision did not return a coalesced composite result; this result was paired by geometry.",
-      ]
+      warnings: warnings
     )
   }
 
@@ -251,6 +259,16 @@ final class Gs1CompositeNativeDecoder {
     let gapScore = 1 - min(1, abs(Double(gap)) / maxReasonableGap)
     let score = overlapRatio * 0.55 + gapScore * 0.25 + 0.20
     return PairCandidate(linear: linear, component: component, score: score)
+  }
+
+  private static func fallbackPairAfterGeometryReject(
+    linearCodes: [CodeCandidate],
+    components: [CodeCandidate]
+  ) -> PairCandidate? {
+    guard !linearCodes.isEmpty, !components.isEmpty else { return nil }
+    let linear = linearCodes.first { $0.format == formatCode128 } ?? linearCodes[0]
+    let component = components.first { $0.format == formatPDF417 } ?? components[0]
+    return PairCandidate(linear: linear, component: component, score: 0.25)
   }
 
   private static func codeCandidate(

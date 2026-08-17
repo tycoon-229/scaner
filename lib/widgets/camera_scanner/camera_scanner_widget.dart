@@ -309,6 +309,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
   bool _isCameraOn = false;
   bool _isFlashAvailable = true;
   bool _isInitializing = false;
+  bool _isDisposing = false;
 
   /// Version tag — changed on every new [CameraController] creation.
   /// Stale frame callbacks are discarded when versions don't match.
@@ -455,6 +456,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
 
   @override
   void dispose() {
+    _isDisposing = true;
     _tabController?.removeListener(_onTabChanged);
     // Cancel any ongoing initialization
     if (_initializationCompleter != null &&
@@ -525,7 +527,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
     _controllerVersion = 'disposed_${DateTime.now().millisecondsSinceEpoch}';
 
     old.removeListener(_rebuildOnMount);
-    widget.controller?.attachCameraController(null);
+    widget.controller?.attachCameraController(null, notify: false);
 
     // Aggressively stop image stream (retry up to 5 times — matches zxing)
     if (old.value.isStreamingImages) {
@@ -561,6 +563,7 @@ class _CameraScannerWidgetState extends State<CameraScannerWidget>
     widget.controller?.updateStreamingState(
       isStreaming: false,
       isPaused: false,
+      notify: !_isDisposing,
     );
   }
 
