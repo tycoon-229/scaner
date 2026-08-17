@@ -5,6 +5,7 @@ import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_detected_code.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_native_service.dart';
 import 'package:poc_multi_scan/services/native_scanners/msi/msi_scan_coordinator.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
@@ -301,7 +302,7 @@ class _ZxingTabState extends State<ZxingTab>
         ),
       );
       final Gs1CompositeAssembly? compositeAssembly = _gs1CompositeAssembler
-          .assemble(multiRes.codes);
+          .assemble(multiRes.codes.map(_detectedCodeFromZxing).toList());
       if (compositeAssembly != null) {
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
@@ -479,7 +480,9 @@ class _ZxingTabState extends State<ZxingTab>
         )
         .timeout(const Duration(milliseconds: 1200), onTimeout: () => Codes());
 
-    return _gs1CompositeAssembler.assemble(res.codes);
+    return _gs1CompositeAssembler.assemble(
+      res.codes.map(_detectedCodeFromZxing).toList(),
+    );
   }
 
   Future<Gs1CompositeNativeResult> _scanNativeCompositeFromFrame(
@@ -507,7 +510,7 @@ class _ZxingTabState extends State<ZxingTab>
 
   bool _addCompositeResult(List<Code> codes) {
     final Gs1CompositeAssembly? assembly = _gs1CompositeAssembler.assemble(
-      codes,
+      codes.map(_detectedCodeFromZxing).toList(),
     );
     if (assembly == null) return false;
 
@@ -527,6 +530,29 @@ class _ZxingTabState extends State<ZxingTab>
         : 'GS1 Composite Native POC ($typeEstimate)';
 
     return addUniqueScanEntry(_scannedEntries, ScanEntry(title, text));
+  }
+
+  Gs1DetectedCode _detectedCodeFromZxing(Code code) {
+    final Position? position = code.position;
+    return Gs1DetectedCode(
+      text: code.text,
+      format: code.format,
+      isValid: code.isValid,
+      position: position == null
+          ? null
+          : Gs1DetectedPosition(
+              imageWidth: position.imageWidth,
+              imageHeight: position.imageHeight,
+              topLeftX: position.topLeftX,
+              topLeftY: position.topLeftY,
+              topRightX: position.topRightX,
+              topRightY: position.topRightY,
+              bottomLeftX: position.bottomLeftX,
+              bottomLeftY: position.bottomLeftY,
+              bottomRightX: position.bottomRightX,
+              bottomRightY: position.bottomRightY,
+            ),
+    );
   }
 
   Code _createCompositeCode(Gs1CompositeAssembly assembly) {

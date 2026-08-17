@@ -2,11 +2,10 @@ import 'package:camera/camera.dart';
 import 'package:dynamsoft_capture_vision_flutter/dynamsoft_capture_vision_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_zxing/flutter_zxing.dart';
 
 import 'package:poc_multi_scan/config/license_keys.dart';
-import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_detected_code.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
@@ -138,12 +137,13 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           if (settings?.barcodeSettings != null) {
             settings!.barcodeSettings!.barcodeFormatIds = EnumBarcodeFormat.all;
             settings.barcodeSettings!.expectedBarcodesCount = 0;
-            settings.barcodeSettings!.localizationModes = <EnumLocalizationMode>[
-              EnumLocalizationMode.connectedBlocks,
-              EnumLocalizationMode.lines,
-              EnumLocalizationMode.statistics,
-              EnumLocalizationMode.scanDirectly,
-            ];
+            settings.barcodeSettings!.localizationModes =
+                <EnumLocalizationMode>[
+                  EnumLocalizationMode.connectedBlocks,
+                  EnumLocalizationMode.lines,
+                  EnumLocalizationMode.statistics,
+                  EnumLocalizationMode.scanDirectly,
+                ];
             settings.barcodeSettings!.deblurModes = <EnumDeblurMode>[
               EnumDeblurMode.directBinarization,
               EnumDeblurMode.thresholdBinarization,
@@ -159,7 +159,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
             );
           }
         } catch (e) {
-          debugPrint('[DynamsoftTab] Error updating template "$templateName": $e');
+          debugPrint(
+            '[DynamsoftTab] Error updating template "$templateName": $e',
+          );
         }
       }
     } catch (e) {
@@ -228,11 +230,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       );
       for (int i = 0; i < barcodes.length; i++) {
         final BarcodeResultItem b = barcodes[i];
-        final Quadrilateral? loc = b.location;
-        final String pts =
-            loc != null
-                ? loc.points.map((p) => '(${p.x},${p.y})').join(', ')
-                : 'no-loc';
+        final Quadrilateral loc = b.location;
+        final String pts = loc.points.map((p) => '(${p.x},${p.y})').join(', ');
         debugPrint(
           '[DynamsoftTab] Item #$i: format=${b.formatString} (${b.format}), text="${b.text}", pts=[$pts]',
         );
@@ -241,9 +240,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       hasDecodedCode = true;
 
       // 4. Try assembling GS1 Composite pair from decoded items
-      final List<Code> codes = barcodes.map(_codeFromDynamsoft).toList();
-      final Gs1CompositeAssembly? compositeAssembly =
-          _gs1CompositeAssembler.assemble(codes);
+      final List<Gs1DetectedCode> codes = barcodes
+          .map(_detectedCodeFromDynamsoft)
+          .toList();
+      final Gs1CompositeAssembly? compositeAssembly = _gs1CompositeAssembler
+          .assemble(codes);
 
       debugPrint(
         '[DynamsoftTab] GS1 Composite assembly result: ${compositeAssembly != null ? "SUCCESS (${compositeAssembly.title} => ${compositeAssembly.resultText})" : "NULL (No composite pair assembled)"}',
@@ -360,9 +361,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
       if (!mounted) return;
 
-      final List<Code> codes = barcodes.map(_codeFromDynamsoft).toList();
-      final Gs1CompositeAssembly? compositeAssembly =
-          _gs1CompositeAssembler.assemble(codes);
+      final List<Gs1DetectedCode> codes = barcodes
+          .map(_detectedCodeFromDynamsoft)
+          .toList();
+      final Gs1CompositeAssembly? compositeAssembly = _gs1CompositeAssembler
+          .assemble(codes);
 
       if (compositeAssembly != null) {
         hasDecodedCode = true;
@@ -427,7 +430,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
             height: image.height,
             stride: image.width,
             format: EnumImagePixelFormat.nv21,
-            orientation: defaultTargetPlatform == TargetPlatform.android ? 90 : 0,
+            orientation: defaultTargetPlatform == TargetPlatform.android
+                ? 90
+                : 0,
           );
 
         case ImageFormatGroup.bgra8888:
@@ -537,27 +542,27 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     setState(() => _showMultiResultScreen = true);
   }
 
-  Code _codeFromDynamsoft(BarcodeResultItem item) {
-    final int? zxFormat = item.formatString.toZxingFormat;
-    final Quadrilateral? loc = item.location;
-    Position? pos;
-    if (loc != null && loc.points.length >= 4) {
-      pos = Position(
-        0,
-        0,
-        loc.points[0].x,
-        loc.points[0].y,
-        loc.points[1].x,
-        loc.points[1].y,
-        loc.points[2].x,
-        loc.points[2].y,
-        loc.points[3].x,
-        loc.points[3].y,
+  Gs1DetectedCode _detectedCodeFromDynamsoft(BarcodeResultItem item) {
+    final int? format = Gs1DetectedFormat.fromName(item.formatString);
+    final Quadrilateral loc = item.location;
+    Gs1DetectedPosition? pos;
+    if (loc.points.length >= 4) {
+      pos = Gs1DetectedPosition(
+        imageWidth: 0,
+        imageHeight: 0,
+        topLeftX: loc.points[0].x,
+        topLeftY: loc.points[0].y,
+        topRightX: loc.points[1].x,
+        topRightY: loc.points[1].y,
+        bottomLeftX: loc.points[2].x,
+        bottomLeftY: loc.points[2].y,
+        bottomRightX: loc.points[3].x,
+        bottomRightY: loc.points[3].y,
       );
     }
-    return Code(
+    return Gs1DetectedCode(
       text: item.text,
-      format: zxFormat,
+      format: format,
       isValid: true,
       position: pos,
     );
@@ -573,7 +578,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
     final List<Gs1Element> elements = Gs1ElementStringParser.parse(
       cleanText,
-      fallbackFormat: formatName.toZxingFormat,
+      fallbackFormat: Gs1DetectedFormat.fromName(formatName),
     );
 
     String title = formatName.toUpperCase().replaceAll('_', '');
@@ -589,7 +594,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
     final String? gs1Text = Gs1ElementStringParser.tryFormatElementString(
       cleanText,
-      fallbackFormat: formatName.toZxingFormat,
+      fallbackFormat: Gs1DetectedFormat.fromName(formatName),
       requireGs1Marker: !looksLikeGs1,
     );
 
@@ -636,7 +641,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   bool _isCompositeResult(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString.toUpperCase();
     final String text = barcode.text;
-    if (formatName.contains('COMPOSITE') || formatName.contains('GS1_COMPOSITE')) {
+    if (formatName.contains('COMPOSITE') ||
+        formatName.contains('GS1_COMPOSITE')) {
       return true;
     }
     if (text.contains('|')) return true;
@@ -644,14 +650,15 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     final String cleanText = text.replaceAll('|', '\u001d');
     final List<Gs1Element> elements = Gs1ElementStringParser.parse(
       cleanText,
-      fallbackFormat: formatName.toZxingFormat,
+      fallbackFormat: Gs1DetectedFormat.fromName(formatName),
     );
     return elements.length > 1;
   }
 
   bool _isLikelyPartialCompositeCarrier(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString.toUpperCase();
-    if (formatName.contains('COMPOSITE') || formatName.contains('GS1_COMPOSITE')) {
+    if (formatName.contains('COMPOSITE') ||
+        formatName.contains('GS1_COMPOSITE')) {
       return false;
     }
     if (barcode.text.contains('|')) return false;
@@ -662,7 +669,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
     final List<Gs1Element> elements = Gs1ElementStringParser.parse(
       barcode.text,
-      fallbackFormat: formatName.toZxingFormat,
+      fallbackFormat: Gs1DetectedFormat.fromName(formatName),
     );
     return elements.length == 1 && elements.single.ai == '01';
   }

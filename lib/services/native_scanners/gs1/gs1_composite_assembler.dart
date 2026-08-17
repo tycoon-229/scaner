@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:flutter_zxing/flutter_zxing.dart';
-import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_detected_code.dart';
 
 enum Gs1CompositeTypeEstimate {
   ccaOrCcb('CC-A/CC-B candidate'),
@@ -25,8 +24,8 @@ class Gs1CompositeAssembly {
     required this.warnings,
   });
 
-  final Code linearCode;
-  final Code compositeCode;
+  final Gs1DetectedCode linearCode;
+  final Gs1DetectedCode compositeCode;
   final Gs1CompositeTypeEstimate typeEstimate;
   final double confidence;
   final List<Gs1Element> linearElements;
@@ -48,10 +47,10 @@ class Gs1CompositeAssembly {
   String toDisplayText() {
     final StringBuffer buffer = StringBuffer()
       ..writeln('Confidence: ${(confidence * 100).round()}%')
-      ..writeln('Linear: ${linearCode.format?.name ?? 'Unknown'}')
+      ..writeln('Linear: ${Gs1DetectedFormat.name(linearCode.format)}')
       ..writeln(_visibleSeparators(linearCode.text ?? ''))
       ..writeln()
-      ..writeln('2D component: ${compositeCode.format?.name ?? 'Unknown'}')
+      ..writeln('2D component: ${Gs1DetectedFormat.name(compositeCode.format)}')
       ..writeln(_visibleSeparators(compositeCode.text ?? ''));
 
     if (elements.isNotEmpty) {
@@ -93,12 +92,17 @@ class Gs1Element {
 class Gs1CompositeAssembler {
   const Gs1CompositeAssembler();
 
-  Gs1CompositeAssembly? assemble(List<Code> codes) {
-    final List<Code> validCodes = codes
-        .where((Code code) => code.isValid && (code.text?.isNotEmpty ?? false))
+  Gs1CompositeAssembly? assemble(List<Gs1DetectedCode> codes) {
+    final List<Gs1DetectedCode> validCodes = codes
+        .where(
+          (Gs1DetectedCode code) =>
+              code.isValid && (code.text?.isNotEmpty ?? false),
+        )
         .toList();
-    final List<Code> linearCodes = validCodes.where(_isLinear).toList();
-    final List<Code> compositeCodes = validCodes
+    final List<Gs1DetectedCode> linearCodes = validCodes
+        .where(_isLinear)
+        .toList();
+    final List<Gs1DetectedCode> compositeCodes = validCodes
         .where(_isCompositeComponent)
         .toList();
 
@@ -107,8 +111,8 @@ class Gs1CompositeAssembler {
     }
 
     _PairCandidate? best;
-    for (final Code linear in linearCodes) {
-      for (final Code composite in compositeCodes) {
+    for (final Gs1DetectedCode linear in linearCodes) {
+      for (final Gs1DetectedCode composite in compositeCodes) {
         final _PairCandidate? candidate = _scorePair(linear, composite);
         if (candidate == null) continue;
         if (best == null || candidate.score > best.score) {
@@ -123,8 +127,8 @@ class Gs1CompositeAssembler {
 
     final List<String> warnings = <String>[
       ...best.warnings,
-      if (best.composite.format == Format.pdf417)
-        'flutter_zxing exposes PDF417 as one format; this POC cannot distinguish PDF417 from MicroPDF417 at Dart level.',
+      if (best.composite.format == Gs1DetectedFormat.pdf417)
+        'This POC maps PDF417-like composite components to one generic PDF417 format and cannot distinguish PDF417 from MicroPDF417.',
     ];
 
     final List<Gs1Element> linearElements = Gs1ElementStringParser.parse(
@@ -158,25 +162,28 @@ class Gs1CompositeAssembler {
     );
   }
 
-  bool _isLinear(Code code) {
+  bool _isLinear(Gs1DetectedCode code) {
     return switch (code.format) {
-      Format.code128 ||
-      Format.ean8 ||
-      Format.ean13 ||
-      Format.upca ||
-      Format.upce ||
-      Format.dataBar ||
-      Format.dataBarExpanded ||
-      CustomFormat.dataBarLimited => true,
+      Gs1DetectedFormat.code128 ||
+      Gs1DetectedFormat.ean8 ||
+      Gs1DetectedFormat.ean13 ||
+      Gs1DetectedFormat.upca ||
+      Gs1DetectedFormat.upce ||
+      Gs1DetectedFormat.dataBar ||
+      Gs1DetectedFormat.dataBarExpanded ||
+      Gs1DetectedFormat.dataBarLimited => true,
       _ => false,
     };
   }
 
-  bool _isCompositeComponent(Code code) {
-    return code.format == Format.pdf417;
+  bool _isCompositeComponent(Gs1DetectedCode code) {
+    return code.format == Gs1DetectedFormat.pdf417;
   }
 
-  _PairCandidate? _scorePair(Code linear, Code composite) {
+  _PairCandidate? _scorePair(
+    Gs1DetectedCode linear,
+    Gs1DetectedCode composite,
+  ) {
     final Rect? linearRect = _rectFor(linear.position);
     final Rect? compositeRect = _rectFor(composite.position);
 
@@ -213,7 +220,10 @@ class Gs1CompositeAssembler {
     );
   }
 
-  _PairCandidate? _fallbackPair(Code linear, Code composite) {
+  _PairCandidate? _fallbackPair(
+    Gs1DetectedCode linear,
+    Gs1DetectedCode composite,
+  ) {
     return _PairCandidate(
       linear: linear,
       composite: composite,
@@ -224,7 +234,7 @@ class Gs1CompositeAssembler {
     );
   }
 
-  Rect? _rectFor(Position? position) {
+  Rect? _rectFor(Gs1DetectedPosition? position) {
     if (position == null) return null;
 
     final List<int> xs = <int>[
@@ -252,11 +262,15 @@ class Gs1CompositeAssembler {
     return math.max(0, math.min(a.right, b.right) - math.max(a.left, b.left));
   }
 
-  Gs1CompositeTypeEstimate _estimateType(Code linear, Code composite) {
-    if (linear.format == Format.code128 && composite.format == Format.pdf417) {
+  Gs1CompositeTypeEstimate _estimateType(
+    Gs1DetectedCode linear,
+    Gs1DetectedCode composite,
+  ) {
+    if (linear.format == Gs1DetectedFormat.code128 &&
+        composite.format == Gs1DetectedFormat.pdf417) {
       return Gs1CompositeTypeEstimate.ccc;
     }
-    if (composite.format == Format.pdf417) {
+    if (composite.format == Gs1DetectedFormat.pdf417) {
       return Gs1CompositeTypeEstimate.ccaOrCcb;
     }
     return Gs1CompositeTypeEstimate.unknown;
@@ -323,13 +337,13 @@ class Gs1ElementStringParser {
     value = value.replaceFirst(RegExp(r'^\u001d+'), '');
 
     if (RegExp(r'^\d+$').hasMatch(value)) {
-      if (fallbackFormat == Format.ean13 && value.length == 13) {
+      if (fallbackFormat == Gs1DetectedFormat.ean13 && value.length == 13) {
         return '01${value.padLeft(14, '0')}';
       }
-      if (fallbackFormat == Format.upca && value.length == 12) {
+      if (fallbackFormat == Gs1DetectedFormat.upca && value.length == 12) {
         return '01${value.padLeft(14, '0')}';
       }
-      if (fallbackFormat == Format.ean8 && value.length == 8) {
+      if (fallbackFormat == Gs1DetectedFormat.ean8 && value.length == 8) {
         return '01${value.padLeft(14, '0')}';
       }
     }
@@ -537,8 +551,8 @@ class _PairCandidate {
     required this.warnings,
   });
 
-  final Code linear;
-  final Code composite;
+  final Gs1DetectedCode linear;
+  final Gs1DetectedCode composite;
   final double score;
   final List<String> warnings;
 }
