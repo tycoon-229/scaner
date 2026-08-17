@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:poc_multi_scan/config/license_keys.dart';
+import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
@@ -184,10 +186,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
-            _singleResult = MapEntry<String, String>(
-              first.formatString,
-              first.text,
-            );
+            _singleResult = _entryForBarcode(first);
           });
         }
         return true; // CameraScannerWidget auto-pauses stream
@@ -197,10 +196,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         int newCodeCount = 0;
         int duplicateCodeCount = 0;
         for (final BarcodeResultItem b in barcodes) {
-          final MapEntry<String, String> e = MapEntry<String, String>(
-            b.formatString,
-            b.text,
-          );
+          final ScanEntry e = _entryForBarcode(b);
           if (addUniqueScanEntry(_scannedEntries, e)) {
             hasNew = true;
             newCodeCount++;
@@ -256,10 +252,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
         setState(() {
-          _singleResult = ScanEntry(
-            barcodes.first.formatString,
-            barcodes.first.text,
-          );
+          _singleResult = _entryForBarcode(barcodes.first);
         });
       } else {
         showScannerMessage(context, 'No valid code found in the image');
@@ -409,6 +402,31 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   void _showMultiResults() {
     setState(() => _showMultiResultScreen = true);
+  }
+
+  ScanEntry _entryForBarcode(BarcodeResultItem barcode) {
+    final String formatName = barcode.formatString;
+    final String rawText = barcode.text;
+    final bool looksLikeGs1 = _looksLikeGs1(formatName, rawText);
+    final String? gs1Text = Gs1ElementStringParser.tryFormatElementString(
+      rawText,
+      fallbackFormat: formatName.toZxingFormat,
+      requireGs1Marker: !looksLikeGs1,
+    );
+
+    return ScanEntry(formatName, gs1Text ?? rawText);
+  }
+
+  bool _looksLikeGs1(String formatName, String text) {
+    final String normalizedFormat = formatName.toUpperCase();
+    return normalizedFormat.contains('GS1') ||
+        normalizedFormat.contains('COMPOSITE') ||
+        text.contains('\u001d') ||
+        text.contains('\u241d') ||
+        RegExp(
+          r'\{GS\}|<GS>|\\u001d|\\x1d',
+          caseSensitive: false,
+        ).hasMatch(text);
   }
 
   String get _modeLabel {

@@ -74,5 +74,26 @@ void main() {
       expect(elements.single.ai, '01');
       expect(elements.single.value, '09506000134352');
     });
+
+    test('formats raw GS1 composite payload with group separators', () {
+      final String? text = Gs1ElementStringParser.tryFormatElementString(
+        '{GS}0103812345678908\u001d10ABCD123456\u001d4103898765432108',
+        requireGs1Marker: true,
+      );
+
+      expect(text, '(01)03812345678908(10)ABCD123456(410)3898765432108');
+    });
+
+    test('formats Scandit linear and composite parts as one GS1 payload', () {
+      final List<Gs1Element> elements = <Gs1Element>[
+        ...Gs1ElementStringParser.parse('0103812345678908'),
+        ...Gs1ElementStringParser.parse('10ABCD123456\u001d4103898765432108'),
+      ];
+
+      expect(
+        Gs1ElementStringParser.formatElements(elements),
+        '(01)03812345678908(10)ABCD123456(410)3898765432108',
+      );
+    });
   });
 }

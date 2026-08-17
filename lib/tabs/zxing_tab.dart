@@ -151,12 +151,11 @@ class _ZxingTabState extends State<ZxingTab>
 
         if (res.codes.isNotEmpty) {
           for (final Code c in res.codes) {
-            if (c.isValid && c.text != null && c.text!.isNotEmpty) {
+            final ScanEntry? entry = _scanEntryForCode(c);
+            if (entry != null) {
               hasDecodedCode = true;
-              final String key = c.formatName ?? 'UNKNOWN';
-              final String value = c.text!;
 
-              if (addUniqueScanEntry(_scannedEntries, ScanEntry(key, value))) {
+              if (addUniqueScanEntry(_scannedEntries, entry)) {
                 hasNewCode = true;
                 newCodeCount++;
               } else {
@@ -225,12 +224,13 @@ class _ZxingTabState extends State<ZxingTab>
               const Duration(milliseconds: 1000),
               onTimeout: () => Code(),
             );
-        if (res.isValid) {
+        final ScanEntry? entry = _scanEntryForCode(res);
+        if (entry != null) {
           hasDecodedCode = true;
           _monitor.recordResults(uniqueCount: 1);
           if (mounted) {
             setState(() {
-              result = res;
+              result = _createCodeFromEntry(res, entry);
             });
           }
           return true; // Single scan success -> pause stream
@@ -314,12 +314,13 @@ class _ZxingTabState extends State<ZxingTab>
       }
 
       final Code res = await zx.readBarcodeImagePathString(path, params);
-      if (res.isValid) {
+      final ScanEntry? entry = _scanEntryForCode(res);
+      if (entry != null) {
         hasDecodedCode = true;
         _monitor.recordResults(uniqueCount: 1);
         if (mounted) {
           setState(() {
-            result = res;
+            result = _createCodeFromEntry(res, entry);
           });
         }
       } else {
@@ -512,13 +513,13 @@ class _ZxingTabState extends State<ZxingTab>
 
     return addUniqueScanEntry(
       _scannedEntries,
-      ScanEntry(assembly.title, assembly.toDisplayText()),
+      ScanEntry(assembly.title, assembly.resultText),
     );
   }
 
   bool _addNativeCompositeResult(Gs1CompositeNativeResult result) {
-    final String? text = result.text;
-    if (!result.hasResult || text == null || text.isEmpty) return false;
+    final String text = _nativeCompositeResultText(result);
+    if (!result.hasResult || text.isEmpty) return false;
 
     final String typeEstimate = result.typeEstimate?.trim() ?? '';
     final String title = typeEstimate.isEmpty
@@ -530,7 +531,7 @@ class _ZxingTabState extends State<ZxingTab>
 
   Code _createCompositeCode(Gs1CompositeAssembly assembly) {
     return Code(
-      text: assembly.toDisplayText(),
+      text: assembly.resultText,
       format: CustomFormat.gs1CompositePoc,
       isValid: true,
       duration: 0,
@@ -539,11 +540,88 @@ class _ZxingTabState extends State<ZxingTab>
 
   Code _createNativeCompositeCode(Gs1CompositeNativeResult result) {
     return Code(
-      text: result.text,
+      text: _nativeCompositeResultText(result),
       format: CustomFormat.gs1CompositePoc,
       isValid: true,
       duration: result.durationMs,
     );
+  }
+
+  ScanEntry? _scanEntryForCode(Code code) {
+    if (!code.isValid || code.text == null || code.text!.isEmpty) return null;
+    if (_isUnpairedCompositeComponent(code)) return null;
+
+    final String key = code.formatName ?? 'UNKNOWN';
+    final String value =
+        Gs1ElementStringParser.tryFormatElementString(
+          code.text!,
+          fallbackFormat: code.format,
+          requireGs1Marker: !_looksLikeGs1Format(key),
+        ) ??
+        code.text!;
+
+    return ScanEntry(key, value);
+  }
+
+  Code _createCodeFromEntry(Code source, ScanEntry entry) {
+    return Code(
+      text: entry.value,
+      format: source.format,
+      isValid: true,
+      duration: source.duration,
+      rawBytes: source.rawBytes,
+      position: source.position,
+      isInverted: source.isInverted,
+      isMirrored: source.isMirrored,
+      imageBytes: source.imageBytes,
+      imageWidth: source.imageWidth,
+      imageHeight: source.imageHeight,
+    );
+  }
+
+  bool _isUnpairedCompositeComponent(Code code) {
+    if (code.format != Format.pdf417 || code.text == null) return false;
+    final String text = code.text!;
+    final bool hasGs1Payload =
+        Gs1ElementStringParser.tryFormatElementString(
+          text,
+          fallbackFormat: code.format,
+        ) !=
+        null;
+    if (hasGs1Payload) return false;
+
+    return text.runes.any(
+      (int rune) => rune < 32 && rune != 10 && rune != 13 && rune != 29,
+    );
+  }
+
+  bool _looksLikeGs1Format(String formatName) {
+    final String normalized = formatName.toUpperCase();
+    return normalized.contains('GS1') || normalized.contains('COMPOSITE');
+  }
+
+  String _nativeCompositeResultText(Gs1CompositeNativeResult result) {
+    final Object? rawElements = result.raw['elements'];
+    if (rawElements is List) {
+      final List<Gs1Element> elements = <Gs1Element>[];
+      for (final Object? rawElement in rawElements) {
+        if (rawElement is! Map) continue;
+        final String? ai = rawElement['ai'] as String?;
+        final String? value = rawElement['value'] as String?;
+        if (ai == null || value == null) continue;
+        elements.add(
+          Gs1Element(
+            ai: ai,
+            value: value,
+            title: rawElement['title'] as String? ?? 'AI $ai',
+          ),
+        );
+      }
+      final String formatted = Gs1ElementStringParser.formatElements(elements);
+      if (formatted.isNotEmpty) return formatted;
+    }
+
+    return result.text ?? '';
   }
 
   void _resumeScan() {

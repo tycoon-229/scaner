@@ -6,6 +6,7 @@ import 'package:scandit_flutter_datacapture_core/scandit_flutter_datacapture_cor
     hide Rect;
 
 import 'package:poc_multi_scan/config/license_keys.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
@@ -222,10 +223,12 @@ class _ScanditTabState extends State<ScanditTab>
   }
 
   ScanEntry _extractBarcodeResult(Barcode b) {
-    String text = b.data ?? b.rawData;
-    if (b.compositeData != null && b.compositeData!.isNotEmpty) {
-      text = '$text | Composite: ${b.compositeData}';
-    }
+    final String linearText = b.data ?? b.rawData;
+    final String? compositeText =
+        _nonEmpty(b.compositeData) ?? _nonEmpty(b.compositeRawData);
+    final String text =
+        _formatGs1CompositeText(b, linearText, compositeText) ??
+        _fallbackDisplayText(linearText, compositeText);
 
     String formatName = b.symbology
         .toString()
@@ -253,6 +256,35 @@ class _ScanditTabState extends State<ScanditTab>
     }
 
     return MapEntry<String, String>(formatName, text);
+  }
+
+  String? _formatGs1CompositeText(
+    Barcode barcode,
+    String linearText,
+    String? compositeText,
+  ) {
+    final bool looksLikeGs1 =
+        barcode.isGS1DataCarrier ||
+        barcode.compositeFlag != CompositeFlag.none ||
+        compositeText != null;
+    if (!looksLikeGs1) return null;
+
+    final List<Gs1Element> elements = <Gs1Element>[
+      ...Gs1ElementStringParser.parse(linearText),
+      if (compositeText != null) ...Gs1ElementStringParser.parse(compositeText),
+    ];
+    final String formatted = Gs1ElementStringParser.formatElements(elements);
+    return formatted.isEmpty ? null : formatted;
+  }
+
+  String _fallbackDisplayText(String linearText, String? compositeText) {
+    if (compositeText == null) return linearText;
+    return '$linearText | Composite: $compositeText';
+  }
+
+  String? _nonEmpty(String? value) {
+    if (value == null || value.isEmpty) return null;
+    return value;
   }
 
   void _onSingleScan(BarcodeCapture capture, BarcodeCaptureSession session) {

@@ -38,6 +38,11 @@ class Gs1CompositeAssembly {
     ...compositeElements,
   ];
 
+  String get resultText {
+    final String formatted = Gs1ElementStringParser.formatElements(elements);
+    return formatted.isEmpty ? toDisplayText() : formatted;
+  }
+
   String get title => 'GS1 Composite POC (${typeEstimate.label})';
 
   String toDisplayText() {
@@ -261,6 +266,28 @@ class Gs1CompositeAssembler {
 class Gs1ElementStringParser {
   const Gs1ElementStringParser._();
 
+  static String formatElements(List<Gs1Element> elements) {
+    return elements
+        .map((Gs1Element element) => '(${element.ai})${element.value}')
+        .join();
+  }
+
+  static String? tryFormatElementString(
+    String raw, {
+    int? fallbackFormat,
+    bool requireGs1Marker = false,
+  }) {
+    if (requireGs1Marker && !_hasGs1Marker(raw)) return null;
+
+    final List<Gs1Element> elements = parse(
+      raw,
+      fallbackFormat: fallbackFormat,
+    );
+    if (elements.isEmpty) return null;
+
+    return formatElements(elements);
+  }
+
   static List<Gs1Element> parse(String raw, {int? fallbackFormat}) {
     final String normalized = _normalize(raw, fallbackFormat: fallbackFormat);
     if (normalized.isEmpty) return const <Gs1Element>[];
@@ -275,6 +302,13 @@ class Gs1ElementStringParser {
   static String _normalize(String raw, {int? fallbackFormat}) {
     String value = raw.trim();
     value = value.replaceFirst(RegExp(r'^\][A-Za-z0-9]{2}'), '');
+    value = value
+        .replaceAll(
+          RegExp(r'\{GS\}|<GS>|\\u001d|\\x1d', caseSensitive: false),
+          '\u001d',
+        )
+        .replaceAll('\u241d', '\u001d');
+    value = value.replaceFirst(RegExp(r'^\u001d+'), '');
 
     if (RegExp(r'^\d+$').hasMatch(value)) {
       if (fallbackFormat == Format.ean13 && value.length == 13) {
@@ -289,6 +323,17 @@ class Gs1ElementStringParser {
     }
 
     return value;
+  }
+
+  static bool _hasGs1Marker(String raw) {
+    final String value = raw.trim();
+    return value.startsWith(RegExp(r'\][A-Za-z0-9]{2}')) ||
+        value.contains('\u001d') ||
+        value.contains('\u241d') ||
+        RegExp(
+          r'\{GS\}|<GS>|\\u001d|\\x1d',
+          caseSensitive: false,
+        ).hasMatch(value);
   }
 
   static List<Gs1Element> _parseBracketed(String input) {
@@ -405,6 +450,10 @@ class Gs1ElementStringParser {
     _AiDefinition.fixed('8005', 6, 'Price per unit of measure'),
     _AiDefinition.fixed('8006', 18, 'ITIP'),
     _AiDefinition.fixed('8026', 18, 'ITIP contained'),
+    _AiDefinition.fixed('410', 13, 'Ship to GLN'),
+    _AiDefinition.fixed('411', 13, 'Bill to GLN'),
+    _AiDefinition.fixed('412', 13, 'Purchased from GLN'),
+    _AiDefinition.fixed('413', 13, 'Ship for GLN'),
     _AiDefinition.fixed('415', 13, 'Pay to GLN'),
     _AiDefinition.fixed('414', 13, 'Physical location GLN'),
     _AiDefinition.fixed('422', 3, 'Country of origin'),
