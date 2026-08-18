@@ -150,7 +150,7 @@ class Gs1CcaCcbRustScannerService {
             'imageWidth': image.width,
             'imageHeight': image.height,
             'rowStride': yPlane.bytesPerRow,
-            if (hint != null) ...hint,
+            ...?hint,
           });
       return Gs1CcaCcbRustScanResult.fromNative(result);
     } on PlatformException catch (e) {

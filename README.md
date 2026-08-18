@@ -42,7 +42,8 @@ Required by `pubspec.yaml`:
 
 Required for Android Rust CC-A/CC-B builds:
 
-- Rust stable with target `aarch64-linux-android`
+- Rust stable with Android targets `aarch64-linux-android`,
+  `armv7-linux-androideabi`, and `x86_64-linux-android`
 - `cargo-ndk`
 
 ## Main Dependencies
@@ -177,21 +178,21 @@ ios/
 
    ```bash
    brew install rustup cargo-ndk
-   /opt/homebrew/opt/rustup/bin/rustup toolchain install stable --profile minimal --target aarch64-linux-android
+   /opt/homebrew/opt/rustup/bin/rustup toolchain install stable --profile minimal --target aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
    ```
 
    Windows PowerShell:
 
    ```powershell
    winget install Rustlang.Rustup
-   rustup target add aarch64-linux-android
+   rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
    cargo install cargo-ndk
    ```
 
    Linux:
 
    ```bash
-   rustup target add aarch64-linux-android
+   rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
    cargo install cargo-ndk
    ```
 
@@ -464,6 +465,8 @@ The installed target list must include:
 
 ```text
 aarch64-linux-android
+armv7-linux-androideabi
+x86_64-linux-android
 ```
 
 On Windows, run the same checks in PowerShell. If `cargo ndk` is not found,
