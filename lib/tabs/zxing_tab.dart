@@ -7,6 +7,7 @@ import 'package:flutter_zxing/flutter_zxing.dart' as zxing;
 import 'package:flutter_zxing/flutter_zxing.dart' hide ImageFormat;
 
 import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
+import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_cca_ccb_rust_service.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_detected_code.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_native_service.dart';
@@ -249,7 +250,7 @@ class _ZxingTabState extends State<ZxingTab>
 
         if (_shouldRunAndroidCcaCcbFallback()) {
           final Gs1CompositeAssembly? ccaCcbAssembly =
-              await _scanAndroidCcaCcbCompositeFromFrame(image, params);
+              await _scanAndroidCcaCcbCompositeFromFrame(image);
           _lastAndroidCcaCcbFallbackAt = DateTime.now();
           if (ccaCcbAssembly != null) {
             hasDecodedCode = true;
@@ -311,7 +312,6 @@ class _ZxingTabState extends State<ZxingTab>
               final Gs1CompositeAssembly? ccaCcbAssembly =
                   await _scanAndroidCcaCcbCompositeFromFrame(
                     image,
-                    params,
                     seedCandidates: <Code>[res],
                   );
               if (ccaCcbAssembly != null) {
@@ -366,7 +366,6 @@ class _ZxingTabState extends State<ZxingTab>
           final Gs1CompositeAssembly? ccaCcbAssembly =
               await _scanAndroidCcaCcbCompositeFromFrame(
                 image,
-                params,
                 seedCandidates: <Code>[res],
               );
           if (ccaCcbAssembly != null) {
@@ -396,7 +395,7 @@ class _ZxingTabState extends State<ZxingTab>
 
         if (_shouldRunAndroidCcaCcbFallback()) {
           final Gs1CompositeAssembly? ccaCcbAssembly =
-              await _scanAndroidCcaCcbCompositeFromFrame(image, params);
+              await _scanAndroidCcaCcbCompositeFromFrame(image);
           _lastAndroidCcaCcbFallbackAt = DateTime.now();
           if (ccaCcbAssembly != null) {
             _setSingleCompositeAssemblyResult(
@@ -940,15 +939,14 @@ class _ZxingTabState extends State<ZxingTab>
   }
 
   Future<Gs1CompositeAssembly?> _scanAndroidCcaCcbCompositeFromFrame(
-    CameraImage image,
-    DecodeParams baseParams, {
+    CameraImage image, {
     List<Code> seedCandidates = const <Code>[],
   }) async {
     if (!_shouldUseAndroidCcaCcbFallbackLive) return null;
 
     final List<Gs1DetectedCode> candidates = seedCandidates
-        .where(_isCcaCcbZxingCandidate)
-        .map(_detectedCcaCcbCodeFromZxing)
+        .where(_isTemporalCompositeCandidate)
+        .map(_detectedCodeFromZxing)
         .toList();
     _rememberDetectedCompositeCandidates(candidates, source: 'ZXing-CCAB');
 
@@ -957,123 +955,46 @@ class _ZxingTabState extends State<ZxingTab>
         _gs1CompositeAssembler.assemble(candidates);
     if (assembly != null) return assembly;
 
-    int passCount = 0;
-    for (final MapEntry<String, DecodeParams> pass
-        in _androidCcaCcbDecodePasses(image, baseParams)) {
-      if (passCount >= _androidCcaCcbFallbackMaxPasses) break;
-      passCount++;
-
-      final Stopwatch timer = Stopwatch()..start();
-      final Codes result = await zx
-          .processCameraImageMulti(image, pass.value)
-          .timeout(_androidCcaCcbPassTimeout, onTimeout: () => Codes());
-      timer.stop();
-
-      final List<Gs1DetectedCode> detectedCodes = result.codes
-          .where(_isCcaCcbZxingCandidate)
-          .map(_detectedCcaCcbCodeFromZxing)
-          .toList();
-      if (detectedCodes.isNotEmpty) {
-        debugPrint(
-          '[ZXing] Android CC-A/B pass="${pass.key}" duration=${timer.elapsedMilliseconds}ms candidates: ${detectedCodes.map(_describeDetectedCompositeCandidate).join(' | ')}',
+    final Gs1CcaCcbRustScanResult rustResult =
+        await Gs1CcaCcbRustScannerService.decodeYuvLuminance(image).timeout(
+          _androidCcaCcbRustTimeout,
+          onTimeout: () => const Gs1CcaCcbRustScanResult.empty(
+            warnings: <String>['Rust CC-A/B scan timed out'],
+          ),
         );
-      }
 
-      candidates.addAll(detectedCodes);
-      _rememberDetectedCompositeCandidates(detectedCodes, source: 'ZXing-CCAB');
-
-      assembly =
-          _assembleRecentComposite() ??
-          _gs1CompositeAssembler.assemble(candidates);
-      if (assembly != null) return assembly;
+    if (rustResult.warnings.isNotEmpty) {
+      debugPrint(
+        '[ZXing][RustCCAB] warnings: ${rustResult.warnings.join(' | ')}',
+      );
     }
 
+    final List<Gs1DetectedCode> rustCodes = rustResult.codes
+        .map((Gs1CcaCcbRustDetectedCode code) => code.toGs1DetectedCode())
+        .where(_isDetectedCompositeCandidate)
+        .toList();
+    if (rustCodes.isNotEmpty) {
+      debugPrint(
+        '[ZXing][RustCCAB] duration=${rustResult.durationMs}ms native=${rustResult.nativeDurationMs}ms candidates: ${rustCodes.map(_describeDetectedCompositeCandidate).join(' | ')}',
+      );
+    }
+
+    candidates.addAll(rustCodes);
+    _rememberDetectedCompositeCandidates(rustCodes, source: 'RustCCAB');
+
+    assembly =
+        _assembleRecentComposite() ??
+        _gs1CompositeAssembler.assemble(candidates);
+    if (assembly != null) return assembly;
+
     if (candidates.isEmpty) {
-      debugPrint('[ZXing] Android CC-A/B fallback found no candidates.');
+      debugPrint('[ZXing][RustCCAB] fallback found no candidates.');
     } else {
       debugPrint(
-        '[ZXing] Android CC-A/B candidates without pair: ${candidates.map(_describeDetectedCompositeCandidate).join(' | ')}',
+        '[ZXing][RustCCAB] candidates without pair: ${candidates.map(_describeDetectedCompositeCandidate).join(' | ')}',
       );
     }
     return null;
-  }
-
-  List<MapEntry<String, DecodeParams>> _androidCcaCcbDecodePasses(
-    CameraImage image,
-    DecodeParams baseParams,
-  ) {
-    DecodeParams pass({
-      required int cropLeft,
-      required int cropTop,
-      required int cropWidth,
-      required int cropHeight,
-      int maxSize = 2400,
-    }) {
-      return DecodeParams(
-        imageFormat: baseParams.imageFormat,
-        format: _ccaCcbCandidateFormats,
-        width: image.width,
-        height: image.height,
-        cropLeft: cropLeft,
-        cropTop: cropTop,
-        cropWidth: cropWidth,
-        cropHeight: cropHeight,
-        tryHarder: true,
-        tryRotate: false,
-        tryInverted: false,
-        tryDownscale: false,
-        isMultiScan: true,
-        maxSize: maxSize,
-      );
-    }
-
-    final int upperHeight = (image.height * 0.70).round().clamp(
-      1,
-      image.height,
-    );
-    final int middleTop = (image.height * 0.12).round().clamp(
-      0,
-      image.height - 1,
-    );
-    final int middleHeight = (image.height * 0.76).round().clamp(
-      1,
-      image.height - middleTop,
-    );
-    final int wideLeft = (image.width * 0.04).round().clamp(0, image.width - 1);
-    final int wideWidth = (image.width * 0.92).round().clamp(
-      1,
-      image.width - wideLeft,
-    );
-
-    return <MapEntry<String, DecodeParams>>[
-      MapEntry<String, DecodeParams>(
-        'cca-ccb-full',
-        pass(
-          cropLeft: 0,
-          cropTop: 0,
-          cropWidth: image.width,
-          cropHeight: image.height,
-        ),
-      ),
-      MapEntry<String, DecodeParams>(
-        'cca-ccb-upper',
-        pass(
-          cropLeft: 0,
-          cropTop: 0,
-          cropWidth: image.width,
-          cropHeight: upperHeight,
-        ),
-      ),
-      MapEntry<String, DecodeParams>(
-        'cca-ccb-middle-wide',
-        pass(
-          cropLeft: wideLeft,
-          cropTop: middleTop,
-          cropWidth: wideWidth,
-          cropHeight: middleHeight,
-        ),
-      ),
-    ];
   }
 
   Future<Gs1CompositeAssembly?> _scanMlKitCompositeFromFrame(
@@ -1560,33 +1481,6 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
-  bool _isCcaCcbZxingCandidate(Code code) {
-    if (!code.isValid) return false;
-    final int? format = code.format;
-    if (format == null) return false;
-    final bool isTargetFormat =
-        format == Format.dataBar ||
-        format == Format.dataBarExpanded ||
-        format == CustomFormat.dataBarLimited ||
-        format == Format.pdf417;
-    if (!isTargetFormat) return false;
-    return (code.text?.isNotEmpty ?? false) ||
-        (code.rawBytes?.isNotEmpty ?? false);
-  }
-
-  Gs1DetectedCode _detectedCcaCcbCodeFromZxing(Code code) {
-    final Gs1DetectedCode detected = _detectedCodeFromZxing(code);
-    if (code.format != Format.pdf417) return detected;
-
-    return Gs1DetectedCode(
-      text: detected.text,
-      format: Gs1DetectedFormat.microPdf417,
-      isValid: detected.isValid,
-      rawBytes: detected.rawBytes,
-      position: detected.position,
-    );
-  }
-
   Code _createCompositeCode(Gs1CompositeAssembly assembly) {
     return Code(
       text: assembly.resultText,
@@ -1967,11 +1861,6 @@ class _ZxingTabState extends State<ZxingTab>
       Format.dataBarExpanded |
       CustomFormat.dataBarLimited |
       Format.pdf417;
-  static const int _ccaCcbCandidateFormats =
-      Format.dataBar |
-      Format.dataBarExpanded |
-      CustomFormat.dataBarLimited |
-      Format.pdf417;
 
   bool get _shouldUseNativeCompositeLive => Platform.isIOS;
 
@@ -1989,9 +1878,8 @@ class _ZxingTabState extends State<ZxingTab>
   static const Duration _mlKitCompositePassTimeout = Duration(
     milliseconds: 900,
   );
-  static const int _androidCcaCcbFallbackMaxPasses = 3;
   static const int _androidCcaCcbFallbackAfterNoCandidateFrames = 3;
-  static const Duration _androidCcaCcbPassTimeout = Duration(milliseconds: 420);
+  static const Duration _androidCcaCcbRustTimeout = Duration(milliseconds: 450);
   static const Duration _androidCcaCcbFallbackInterval = Duration(
     milliseconds: 1500,
   );

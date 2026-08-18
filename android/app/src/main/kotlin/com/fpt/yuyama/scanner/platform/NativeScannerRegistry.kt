@@ -1,6 +1,7 @@
 package com.fpt.yuyama.scanner.platform
 
 import com.fpt.yuyama.scanner.gs1.Gs1CompositeScannerChannel
+import com.fpt.yuyama.scanner.gs1cca.Gs1CcaCcbRustScannerChannel
 import com.fpt.yuyama.scanner.mlkit.MlKitBarcodeScannerChannel
 import com.fpt.yuyama.scanner.msi.MsiScannerChannel
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,7 +15,8 @@ class NativeScannerRegistry private constructor(
                 listOf(
                     MsiScannerChannel.registerWith(flutterEngine),
                     Gs1CompositeScannerChannel.registerWith(flutterEngine),
-                    MlKitBarcodeScannerChannel.registerWith(flutterEngine)
+                    MlKitBarcodeScannerChannel.registerWith(flutterEngine),
+                    Gs1CcaCcbRustScannerChannel.registerWith(flutterEngine)
                 )
             )
         }

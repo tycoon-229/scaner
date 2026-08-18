@@ -5,6 +5,40 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val rustCcaCcbCrateDir = file("src/main/rust/gs1_cca_ccb_scanner")
+val rustCcaCcbJniLibsDir = layout.buildDirectory.dir("rustJniLibs/gs1_cca_ccb")
+val homeDir = System.getProperty("user.home")
+val cargoBinDir = file("$homeDir/.cargo/bin").absolutePath
+val rustupHomebrewBinDir = "/opt/homebrew/opt/rustup/bin"
+val cargoExecutable = providers.environmentVariable("CARGO")
+    .orElse("cargo")
+
+val buildRustCcaCcbScanner by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Builds the experimental Rust GS1 CC-A/B scanner JNI library."
+
+    workingDir = rustCcaCcbCrateDir
+    environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
+    environment("ANDROID_NDK_ROOT", android.ndkDirectory.absolutePath)
+    environment("CARGO_TARGET_DIR", layout.buildDirectory.dir("rustTarget/gs1_cca_ccb").get().asFile.absolutePath)
+    val pathEntries = listOf(cargoBinDir, rustupHomebrewBinDir, System.getenv("PATH").orEmpty())
+        .filter(String::isNotEmpty)
+    environment("PATH", pathEntries.joinToString(File.pathSeparator))
+    commandLine(
+        cargoExecutable.get(),
+        "ndk",
+        "-t",
+        "arm64-v8a",
+        "-o",
+        rustCcaCcbJniLibsDir.get().asFile.absolutePath,
+        "build",
+        "--release"
+    )
+
+    inputs.dir(rustCcaCcbCrateDir)
+    outputs.dir(rustCcaCcbJniLibsDir)
+}
+
 android {
     namespace = "com.fpt.yuyama"
     compileSdk = flutter.compileSdkVersion
@@ -51,6 +85,16 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
         }
     }
+
+    sourceSets {
+        getByName("main").jniLibs.srcDir(rustCcaCcbJniLibsDir)
+    }
+}
+
+tasks.matching {
+    it.name.startsWith("merge") && it.name.endsWith("JniLibFolders")
+}.configureEach {
+    dependsOn(buildRustCcaCcbScanner)
 }
 
 flutter {
