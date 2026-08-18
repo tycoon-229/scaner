@@ -10,6 +10,7 @@ import 'package:poc_multi_scan/extensions/code_format_extensions.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_detected_code.dart';
 import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_native_service.dart';
+import 'package:poc_multi_scan/services/native_scanners/mlkit/mlkit_barcode_scanner_service.dart';
 import 'package:poc_multi_scan/services/native_scanners/msi/msi_scan_coordinator.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
@@ -704,6 +705,28 @@ class _ZxingTabState extends State<ZxingTab>
       }
     }
 
+    final Gs1CompositeAssembly? mlKitCompositeAssembly =
+        await _scanMlKitCompositeFromFrame(image);
+    if (mlKitCompositeAssembly != null) {
+      _monitor.recordResults(uniqueCount: 1);
+      if (mounted) {
+        setState(() {
+          final Code code = _createCompositeCode(mlKitCompositeAssembly);
+          logScanResult(
+            'ZXing',
+            ScanEntry(code.formatName ?? '', code.text ?? ''),
+            mode: _modeLabel,
+            origin: '$origin/mlkit-composite',
+          );
+          _clearPendingCompositeCarrier();
+          _clearRecentCompositeCandidates();
+          _resetReacquireState();
+          result = code;
+        });
+      }
+      return true;
+    }
+
     final Gs1CompositeAssembly? compositeAssembly =
         await _scanCompositeFromFrame(
           image,
@@ -793,6 +816,38 @@ class _ZxingTabState extends State<ZxingTab>
 
     _logCompositeCandidates(candidates);
     return null;
+  }
+
+  Future<Gs1CompositeAssembly?> _scanMlKitCompositeFromFrame(
+    CameraImage image,
+  ) async {
+    if (!Platform.isAndroid) return null;
+
+    final MlKitBarcodeScanResult mlKitResult =
+        await MlKitBarcodeScannerService.decodeYuv420(image).timeout(
+          _mlKitCompositePassTimeout,
+          onTimeout: () => const MlKitBarcodeScanResult.empty(
+            warning: 'ML Kit barcode scan timed out',
+          ),
+        );
+    if (mlKitResult.warning != null) {
+      debugPrint('[ZXing] ML Kit composite miss: ${mlKitResult.warning}');
+    }
+    if (!mlKitResult.hasCandidates) return null;
+
+    final List<Gs1DetectedCode> detectedCodes = mlKitResult.codes
+        .map((MlKitDetectedBarcode code) => code.toGs1DetectedCode())
+        .where(_isDetectedCompositeCandidate)
+        .toList();
+    if (detectedCodes.isEmpty) return null;
+
+    debugPrint(
+      '[ZXing] ML Kit candidates duration=${mlKitResult.durationMs}ms: ${detectedCodes.map(_describeDetectedCompositeCandidate).join(' | ')}',
+    );
+    _rememberDetectedCompositeCandidates(detectedCodes, source: 'MLKit');
+
+    return _assembleRecentComposite() ??
+        _gs1CompositeAssembler.assemble(detectedCodes);
   }
 
   Future<List<Code>> _scanLinearCarrierFromFrame(
@@ -1087,13 +1142,21 @@ class _ZxingTabState extends State<ZxingTab>
   }
 
   void _rememberCompositeCandidates(Iterable<Code> codes) {
+    _rememberDetectedCompositeCandidates(
+      codes.where(_isTemporalCompositeCandidate).map(_detectedCodeFromZxing),
+      source: 'ZXing',
+    );
+  }
+
+  void _rememberDetectedCompositeCandidates(
+    Iterable<Gs1DetectedCode> codes, {
+    required String source,
+  }) {
     _pruneRecentCompositeCandidates();
 
-    for (final Code code in codes) {
-      if (!_isTemporalCompositeCandidate(code)) continue;
-
+    for (final Gs1DetectedCode detected in codes) {
+      if (!_isDetectedCompositeCandidate(detected)) continue;
       _noCandidateFrameCount = 0;
-      final Gs1DetectedCode detected = _detectedCodeFromZxing(code);
       final String key = _detectedCodeKey(detected);
       _recentCompositeCandidates.removeWhere(
         (_RecentCompositeCandidate candidate) =>
@@ -1103,7 +1166,7 @@ class _ZxingTabState extends State<ZxingTab>
         _RecentCompositeCandidate(code: detected, seenAt: DateTime.now()),
       );
       debugPrint(
-        '[ZXing] Remember composite candidate count=${_recentCompositeCandidates.length}: ${Gs1DetectedFormat.name(detected.format)} text="${_visibleControlChars(detected.text ?? '')}" rawLen=${detected.rawBytes?.length ?? 0}',
+        '[ZXing] Remember $source composite candidate count=${_recentCompositeCandidates.length}: ${_describeDetectedCompositeCandidate(detected)}',
       );
     }
 
@@ -1159,6 +1222,18 @@ class _ZxingTabState extends State<ZxingTab>
     final int? format = code.format;
     if (!code.isValid || format == null) return false;
     if ((_compositeCandidateFormats & format) == 0) return false;
+    return (code.text?.isNotEmpty ?? false) ||
+        (code.rawBytes?.isNotEmpty ?? false);
+  }
+
+  bool _isDetectedCompositeCandidate(Gs1DetectedCode code) {
+    final int? format = code.format;
+    if (!code.isValid || format == null) return false;
+    if ((format != Gs1DetectedFormat.code128) &&
+        (format != Gs1DetectedFormat.pdf417) &&
+        (format != Gs1DetectedFormat.microPdf417)) {
+      return false;
+    }
     return (code.text?.isNotEmpty ?? false) ||
         (code.rawBytes?.isNotEmpty ?? false);
   }
@@ -1408,6 +1483,16 @@ class _ZxingTabState extends State<ZxingTab>
     return '${code.formatName ?? code.format}: "${_visibleControlChars(text)}", textHex=[${_hexText(text)}], $rawSummary';
   }
 
+  String _describeDetectedCompositeCandidate(Gs1DetectedCode code) {
+    final String text = code.text ?? '';
+    final List<int>? rawBytes = code.rawBytes;
+    final String rawSummary = rawBytes == null || rawBytes.isEmpty
+        ? 'rawBytes=null'
+        : 'rawLen=${rawBytes.length}, rawHex=[${_hexBytes(rawBytes)}], rawB64=${base64Encode(rawBytes)}';
+
+    return '${Gs1DetectedFormat.name(code.format)} text="${_visibleControlChars(text)}" textHex=[${_hexText(text)}] $rawSummary';
+  }
+
   String _hexText(String value) {
     return value.runes
         .map((int rune) => rune.toRadixString(16).padLeft(2, '0'))
@@ -1526,6 +1611,9 @@ class _ZxingTabState extends State<ZxingTab>
   static const int _singleFullFrameMaxSize = 1600;
   static const int _liveCompositeMaxPasses = 2;
   static const Duration _liveCompositePassTimeout = Duration(milliseconds: 220);
+  static const Duration _mlKitCompositePassTimeout = Duration(
+    milliseconds: 900,
+  );
   static const Duration _linearCarrierPassTimeout = Duration(milliseconds: 320);
   static const int _linearCarrierMaxSize = 2400;
   static const int _reacquireCompositeMaxPasses = 1;
