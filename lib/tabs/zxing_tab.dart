@@ -158,16 +158,33 @@ class _ZxingTabState extends State<ZxingTab>
 
     try {
       if (_scanMode == ScanMode.multiscan) {
+        bool hasNewCode = false;
+        int newCodeCount = 0;
+        int duplicateCodeCount = 0;
+
+        if (_shouldUseMlKitPrimaryLive) {
+          final Gs1CompositeAssembly? mlKitCompositeAssembly =
+              await _scanMlKitCompositeFromFrame(image);
+          if (mlKitCompositeAssembly != null) {
+            hasDecodedCode = true;
+            if (_addCompositeAssemblyResult(
+              mlKitCompositeAssembly,
+              origin: 'live-camera/mlkit-primary',
+            )) {
+              hasNewCode = true;
+              newCodeCount++;
+            } else {
+              duplicateCodeCount++;
+            }
+          }
+        }
+
         final Codes res = await zx
             .processCameraImageMulti(image, params)
             .timeout(
               const Duration(milliseconds: 1000),
               onTimeout: () => Codes(),
             );
-
-        bool hasNewCode = false;
-        int newCodeCount = 0;
-        int duplicateCodeCount = 0;
 
         if (res.codes.isNotEmpty) {
           final Gs1CompositeAssembly? frameCompositeAssembly =
@@ -191,6 +208,9 @@ class _ZxingTabState extends State<ZxingTab>
                     entry: entry,
                     compositeText: frameCompositeAssembly.resultText,
                   )) {
+                continue;
+              }
+              if (_isCompositeCarrierEntryCoveredByExistingResult(entry)) {
                 continue;
               }
 
@@ -236,6 +256,19 @@ class _ZxingTabState extends State<ZxingTab>
           setState(() {});
         }
       } else {
+        if (_shouldUseMlKitPrimaryLive) {
+          final Gs1CompositeAssembly? mlKitCompositeAssembly =
+              await _scanMlKitCompositeFromFrame(image);
+          if (mlKitCompositeAssembly != null) {
+            _setSingleCompositeAssemblyResult(
+              mlKitCompositeAssembly,
+              origin: 'live-camera/mlkit-primary',
+            );
+            hasDecodedCode = true;
+            return true;
+          }
+        }
+
         final Code res = await _scanSingleFromFrame(image, params);
         _rememberCompositeCandidates(<Code>[res]);
         final ScanEntry? entry = _scanEntryForCode(res);
@@ -258,6 +291,7 @@ class _ZxingTabState extends State<ZxingTab>
               origin: 'live-camera',
               seedCandidates: <Code>[res],
               allowNative: _shouldUseNativeCompositeLive,
+              allowMlKit: !_shouldUseMlKitPrimaryLive,
               maxPasses: _liveCompositeMaxPasses,
               passTimeout: _liveCompositePassTimeout,
             );
@@ -296,6 +330,7 @@ class _ZxingTabState extends State<ZxingTab>
             origin: 'live-camera/component',
             seedCandidates: <Code>[res],
             allowNative: false,
+            allowMlKit: !_shouldUseMlKitPrimaryLive,
             maxPasses: _liveCompositeMaxPasses,
             passTimeout: _liveCompositePassTimeout,
           );
@@ -311,6 +346,7 @@ class _ZxingTabState extends State<ZxingTab>
             params,
             origin: 'live-camera/reacquire',
             allowNative: false,
+            allowMlKit: !_shouldUseMlKitPrimaryLive,
             maxPasses: _reacquireCompositeMaxPasses,
             passTimeout: _reacquireCompositePassTimeout,
           );
@@ -694,6 +730,7 @@ class _ZxingTabState extends State<ZxingTab>
     required String origin,
     List<Code> seedCandidates = const <Code>[],
     bool allowNative = true,
+    bool allowMlKit = true,
     int? maxPasses,
     Duration? passTimeout,
   }) async {
@@ -721,26 +758,16 @@ class _ZxingTabState extends State<ZxingTab>
       }
     }
 
-    final Gs1CompositeAssembly? mlKitCompositeAssembly =
-        await _scanMlKitCompositeFromFrame(image);
-    if (mlKitCompositeAssembly != null) {
-      _monitor.recordResults(uniqueCount: 1);
-      if (mounted) {
-        setState(() {
-          final Code code = _createCompositeCode(mlKitCompositeAssembly);
-          logScanResult(
-            'ZXing',
-            ScanEntry(code.formatName ?? '', code.text ?? ''),
-            mode: _modeLabel,
-            origin: '$origin/mlkit-composite',
-          );
-          _clearPendingCompositeCarrier();
-          _clearRecentCompositeCandidates();
-          _resetReacquireState();
-          result = code;
-        });
+    if (allowMlKit) {
+      final Gs1CompositeAssembly? mlKitCompositeAssembly =
+          await _scanMlKitCompositeFromFrame(image);
+      if (mlKitCompositeAssembly != null) {
+        _setSingleCompositeAssemblyResult(
+          mlKitCompositeAssembly,
+          origin: '$origin/mlkit-composite',
+        );
+        return true;
       }
-      return true;
     }
 
     final Gs1CompositeAssembly? compositeAssembly =
@@ -752,26 +779,36 @@ class _ZxingTabState extends State<ZxingTab>
           passTimeout: passTimeout ?? _galleryCompositePassTimeout,
         );
     if (compositeAssembly != null) {
-      _monitor.recordResults(uniqueCount: 1);
-      if (mounted) {
-        setState(() {
-          final Code code = _createCompositeCode(compositeAssembly);
-          logScanResult(
-            'ZXing',
-            ScanEntry(code.formatName ?? '', code.text ?? ''),
-            mode: _modeLabel,
-            origin: '$origin/composite',
-          );
-          _clearPendingCompositeCarrier();
-          _clearRecentCompositeCandidates();
-          _resetReacquireState();
-          result = code;
-        });
-      }
+      _setSingleCompositeAssemblyResult(
+        compositeAssembly,
+        origin: '$origin/composite',
+      );
       return true;
     }
 
     return false;
+  }
+
+  void _setSingleCompositeAssemblyResult(
+    Gs1CompositeAssembly assembly, {
+    required String origin,
+  }) {
+    _monitor.recordResults(uniqueCount: 1);
+    if (mounted) {
+      setState(() {
+        final Code code = _createCompositeCode(assembly);
+        logScanResult(
+          'ZXing',
+          ScanEntry(code.formatName ?? '', code.text ?? ''),
+          mode: _modeLabel,
+          origin: origin,
+        );
+        _clearPendingCompositeCarrier();
+        _clearRecentCompositeCandidates();
+        _resetReacquireState();
+        result = code;
+      });
+    }
   }
 
   Future<Gs1CompositeAssembly?> _scanCompositeFromFrame(
@@ -1120,17 +1157,15 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
-  bool _addCompositeAssemblyResult(Gs1CompositeAssembly assembly) {
+  bool _addCompositeAssemblyResult(
+    Gs1CompositeAssembly assembly, {
+    String origin = 'live-camera/composite',
+  }) {
     final ScanEntry entry = ScanEntry(assembly.title, assembly.resultText);
     _removeCompositeCarrierEntriesCoveredBy(assembly.resultText);
     final bool added = addUniqueScanEntry(_scannedEntries, entry);
     if (added) {
-      logScanResult(
-        'ZXing',
-        entry,
-        mode: _modeLabel,
-        origin: 'live-camera/composite',
-      );
+      logScanResult('ZXing', entry, mode: _modeLabel, origin: origin);
       _clearRecentCompositeCandidates();
       _resetReacquireState();
     }
@@ -1175,6 +1210,15 @@ class _ZxingTabState extends State<ZxingTab>
   }) {
     return _isLikelyCompositeLinearCarrier(code, entry) &&
         compositeText.startsWith(entry.value);
+  }
+
+  bool _isCompositeCarrierEntryCoveredByExistingResult(ScanEntry entry) {
+    if (!_entryLooksLikeCompositeCarrier(entry)) return false;
+    return _scannedEntries.any(
+      (ScanEntry existing) =>
+          _looksLikeGs1Format(existing.key) &&
+          existing.value.startsWith(entry.value),
+    );
   }
 
   void _rememberCompositeCandidates(Iterable<Code> codes) {
@@ -1646,6 +1690,8 @@ class _ZxingTabState extends State<ZxingTab>
   bool get _shouldUseNativeCompositeLive => Platform.isIOS;
 
   bool get _shouldUseNativeCompositeGallery => Platform.isIOS;
+
+  bool get _shouldUseMlKitPrimaryLive => Platform.isAndroid;
 
   static const Duration _singleCropPassTimeout = Duration(milliseconds: 260);
   static const Duration _singleFullPassTimeout = Duration(milliseconds: 520);
