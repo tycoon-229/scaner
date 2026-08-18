@@ -11,10 +11,9 @@ The app supports live camera scanning, single-code and multi-code modes, a share
 result list UI, gallery image decoding for supported engines, and a debug preview
 mode for checking result UI without scanning real barcodes.
 
-GS1 Composite is handled as a special native path. Regular barcode scanning can
-still use `flutter_zxing`, Dynamsoft, or Scandit, but GS1 Composite decoding uses
-the dedicated native module so it can support CC-A, CC-B, and CC-C without
-coupling the other engines to ZXing internals.
+GS1 Composite is handled as special native/fallback paths. Regular barcode
+scanning can still use `flutter_zxing`, Dynamsoft, or Scandit, while the ZXing
+tab adds native helpers for GS1 Composite proof-of-concept decoding.
 
 ## Project Info
 
@@ -34,11 +33,17 @@ This project was last verified with:
 - Java `21.0.11`
 - Gradle wrapper `8.14`
 - iOS deployment target `15.0`
+- Android NDK `28.2.13676358`
 
 Required by `pubspec.yaml`:
 
 - Dart SDK `>=3.11.0 <4.0.0`
 - Flutter stable with Android and iOS toolchains configured
+
+Required for Android Rust CC-A/CC-B builds:
+
+- Rust stable with target `aarch64-linux-android`
+- `cargo-ndk`
 
 ## Main Dependencies
 
@@ -61,6 +66,26 @@ android/app/src/main/cpp/third_party/zxing-cpp
 The submodule is pinned to ZXing-C++ `v3.1.1`, which includes MicroPDF417
 decoder support required for GS1 Composite CC-A and CC-B. The normal Flutter
 `flutter_zxing` package remains in use for non-composite ZXing scans.
+
+Android also includes an experimental Rust fallback for GS1 Composite CC-A and
+CC-B:
+
+```text
+android/app/src/main/rust/gs1_cca_ccb_scanner
+```
+
+This module is built as `libgs1_cca_ccb_scanner.so` and is called through a
+separate Flutter method channel. It uses:
+
+- `zedbar` for GS1 DataBar / DataBar Expanded linear candidates
+- `anyd` for MicroPDF417 / PDF417 component candidates
+
+The fallback runs after the existing Android CC-C path and logs with the
+`[ZXing][RustCCAB]` prefix. The Rust crate versions are pinned by
+`Cargo.lock`; the first Android build downloads the crates from crates.io.
+
+License note: `anyd` is MIT, while `zedbar` is LGPL-3.0-or-later. Review this
+before shipping the Rust fallback in a production app.
 
 iOS GS1 Composite uses Apple Vision. On iOS 17 and newer, Vision can coalesce
 GS1 Composite symbols and report CC-A, CC-B, or CC-C. On older supported iOS
@@ -103,7 +128,11 @@ android/
     third_party/zxing-cpp      # Git submodule pinned to v3.1.1
   app/src/main/kotlin/com/fpt/yuyama/scanner/
     gs1/
+    gs1cca/
+    mlkit/
     msi/
+  app/src/main/rust/
+    gs1_cca_ccb_scanner/       # Experimental Rust Android CC-A/B fallback
 ios/
   Runner/NativeScanners/
     GS1/
@@ -142,7 +171,34 @@ ios/
    Update `lib/config/license_keys.dart` with valid Scandit and Dynamsoft keys
    for your bundle ID/application ID.
 
-5. For iOS, install CocoaPods dependencies.
+5. For Android, install Rust dependencies for the experimental CC-A/B fallback.
+
+   macOS:
+
+   ```bash
+   brew install rustup cargo-ndk
+   /opt/homebrew/opt/rustup/bin/rustup toolchain install stable --profile minimal --target aarch64-linux-android
+   ```
+
+   Windows PowerShell:
+
+   ```powershell
+   winget install Rustlang.Rustup
+   rustup target add aarch64-linux-android
+   cargo install cargo-ndk
+   ```
+
+   Linux:
+
+   ```bash
+   rustup target add aarch64-linux-android
+   cargo install cargo-ndk
+   ```
+
+   The Android Gradle build calls `cargo ndk` automatically and writes generated
+   `.so` files under Gradle build output.
+
+6. For iOS, install CocoaPods dependencies.
 
    ```bash
    cd ios
@@ -150,7 +206,7 @@ ios/
    cd ..
    ```
 
-6. For physical iOS devices, open Xcode and configure signing.
+7. For physical iOS devices, open Xcode and configure signing.
 
    ```bash
    open ios/Runner.xcworkspace
@@ -305,13 +361,16 @@ The normal `POC MultiScan` configuration runs the live scanner flow.
 ## Engine Notes
 
 - ZXing uses the shared camera scanner widget and `flutter_zxing` decoding.
-- GS1 Composite on the ZXing tab first tries the dedicated native GS1 Composite
-  module, then falls back to Dart-side pairing for decoded candidates.
+- On Android, the ZXing tab uses ML Kit as the fast primary path for Code128 +
+  PDF417 CC-C-style candidates, then uses the experimental Rust fallback for
+  DataBar + MicroPDF417 CC-A/CC-B candidates.
+- On iOS, GS1 Composite uses the dedicated native GS1 Composite module, then
+  falls back to Dart-side pairing for decoded candidates.
 - Dynamsoft uses the shared camera scanner widget and Dynamsoft decoding.
 - Scandit uses Scandit's native capture context and camera integration.
 - Gallery image decoding is currently wired for ZXing and Dynamsoft.
-- Android GS1 Composite links ZXing-C++ `v3.1.1` through the submodule because
-  CC-A and CC-B require MicroPDF417 support.
+- Android still links ZXing-C++ `v3.1.1` through the submodule for native GS1
+  experiments and parity with the iOS/native path.
 - iOS GS1 Composite uses Vision with coalesced composite symbologies on iOS 17+
   and geometry pairing fallback for separate observations.
 
@@ -389,6 +448,41 @@ The expected path is:
 
 ```text
 android/app/src/main/cpp/third_party/zxing-cpp/core
+```
+
+### Android Rust CC-A/B build fails
+
+Check that Rust, the Android target, and `cargo-ndk` are installed:
+
+```bash
+cargo --version
+cargo ndk --version
+rustup target list --installed
+```
+
+The installed target list must include:
+
+```text
+aarch64-linux-android
+```
+
+On Windows, run the same checks in PowerShell. If `cargo ndk` is not found,
+make sure `%USERPROFILE%\.cargo\bin` is on `PATH`, then restart the terminal or
+IDE.
+
+### Android APK does not contain the Rust CC-A/B library
+
+Build the debug APK and inspect native libraries:
+
+```bash
+flutter build apk --debug
+unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep libgs1_cca_ccb_scanner
+```
+
+Expected entry:
+
+```text
+lib/arm64-v8a/libgs1_cca_ccb_scanner.so
 ```
 
 ### Swift Package Manager warning
