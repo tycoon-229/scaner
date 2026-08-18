@@ -170,9 +170,30 @@ class _ZxingTabState extends State<ZxingTab>
         int duplicateCodeCount = 0;
 
         if (res.codes.isNotEmpty) {
+          final Gs1CompositeAssembly? frameCompositeAssembly =
+              _assembleCompositeCodes(res.codes);
+          if (frameCompositeAssembly != null) {
+            hasDecodedCode = true;
+            if (_addCompositeAssemblyResult(frameCompositeAssembly)) {
+              hasNewCode = true;
+              newCodeCount++;
+            } else {
+              duplicateCodeCount++;
+            }
+          }
+
           for (final Code c in res.codes) {
             final ScanEntry? entry = _scanEntryForCode(c);
             if (entry != null) {
+              if (frameCompositeAssembly != null &&
+                  _isCompositeCarrierEntryCovered(
+                    code: c,
+                    entry: entry,
+                    compositeText: frameCompositeAssembly.resultText,
+                  )) {
+                continue;
+              }
+
               hasDecodedCode = true;
 
               if (addUniqueScanEntry(_scannedEntries, entry)) {
@@ -188,11 +209,6 @@ class _ZxingTabState extends State<ZxingTab>
                 duplicateCodeCount++;
               }
             }
-          }
-          final bool hasCompositeResult = _addCompositeResult(res.codes);
-          if (hasCompositeResult) {
-            hasNewCode = true;
-            newCodeCount++;
           }
         }
 
@@ -1098,13 +1114,15 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
-  bool _addCompositeResult(List<Code> codes) {
-    final Gs1CompositeAssembly? assembly = _gs1CompositeAssembler.assemble(
+  Gs1CompositeAssembly? _assembleCompositeCodes(Iterable<Code> codes) {
+    return _gs1CompositeAssembler.assemble(
       codes.map(_detectedCodeFromZxing).toList(),
     );
-    if (assembly == null) return false;
+  }
 
+  bool _addCompositeAssemblyResult(Gs1CompositeAssembly assembly) {
     final ScanEntry entry = ScanEntry(assembly.title, assembly.resultText);
+    _removeCompositeCarrierEntriesCoveredBy(assembly.resultText);
     final bool added = addUniqueScanEntry(_scannedEntries, entry);
     if (added) {
       logScanResult(
@@ -1129,6 +1147,7 @@ class _ZxingTabState extends State<ZxingTab>
         : 'GS1 Composite Native POC ($typeEstimate)';
 
     final ScanEntry entry = ScanEntry(title, text);
+    _removeCompositeCarrierEntriesCoveredBy(text);
     final bool added = addUniqueScanEntry(_scannedEntries, entry);
     if (added) {
       logScanResult(
@@ -1139,6 +1158,23 @@ class _ZxingTabState extends State<ZxingTab>
       );
     }
     return added;
+  }
+
+  void _removeCompositeCarrierEntriesCoveredBy(String compositeText) {
+    _scannedEntries.removeWhere(
+      (ScanEntry entry) =>
+          _entryLooksLikeCompositeCarrier(entry) &&
+          compositeText.startsWith(entry.value),
+    );
+  }
+
+  bool _isCompositeCarrierEntryCovered({
+    required Code code,
+    required ScanEntry entry,
+    required String compositeText,
+  }) {
+    return _isLikelyCompositeLinearCarrier(code, entry) &&
+        compositeText.startsWith(entry.value);
   }
 
   void _rememberCompositeCandidates(Iterable<Code> codes) {
@@ -1341,7 +1377,12 @@ class _ZxingTabState extends State<ZxingTab>
     if (code.format != Format.code128 && !formatName.contains('CODE128')) {
       return false;
     }
+    return _entryLooksLikeCompositeCarrier(entry);
+  }
 
+  bool _entryLooksLikeCompositeCarrier(ScanEntry entry) {
+    final String formatName = entry.key.toUpperCase();
+    if (!formatName.contains('128')) return false;
     final List<Gs1Element> elements = Gs1ElementStringParser.parse(
       entry.value,
       fallbackFormat: Gs1DetectedFormat.code128,
