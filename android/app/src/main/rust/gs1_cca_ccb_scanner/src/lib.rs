@@ -50,8 +50,22 @@ pub extern "system" fn Java_com_fpt_yuyama_scanner_gs1cca_Gs1CcaCcbRustDecoder_d
     width: jint,
     height: jint,
     row_stride: jint,
+    hint_left: jint,
+    hint_top: jint,
+    hint_right: jint,
+    hint_bottom: jint,
 ) -> jstring {
-    let json = match decode_yuv(&mut env, image_bytes, width, height, row_stride) {
+    let json = match decode_yuv(
+        &mut env,
+        image_bytes,
+        width,
+        height,
+        row_stride,
+        hint_left,
+        hint_top,
+        hint_right,
+        hint_bottom,
+    ) {
         Ok(value) => value,
         Err(message) => {
             let result = DecodeResult {
@@ -76,6 +90,10 @@ fn decode_yuv(
     width: jint,
     height: jint,
     row_stride: jint,
+    hint_left: jint,
+    hint_top: jint,
+    hint_right: jint,
+    hint_bottom: jint,
 ) -> Result<String, String> {
     if width <= 0 || height <= 0 || row_stride < width {
         return Err("Invalid image width, height, or rowStride".to_string());
@@ -112,7 +130,13 @@ fn decode_yuv(
         Err(error) => warnings.push(error),
     }
 
-    match scan_stacked_with_anyd(&luminance, width, height, row_stride) {
+    match scan_stacked_regions_with_anyd(
+        &luminance,
+        width,
+        height,
+        row_stride,
+        HintRect::from_jints(hint_left, hint_top, hint_right, hint_bottom),
+    ) {
         Ok(found) => append_unique(&mut codes, &mut seen, found),
         Err(error) => warnings.push(error),
     }
@@ -192,13 +216,140 @@ fn scan_databar_with_zedbar(
     Ok(codes)
 }
 
-fn scan_stacked_with_anyd(
+#[derive(Clone, Copy)]
+struct HintRect {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+}
+
+impl HintRect {
+    fn from_jints(left: jint, top: jint, right: jint, bottom: jint) -> Option<Self> {
+        if left < 0 || top < 0 || right <= left || bottom <= top {
+            return None;
+        }
+        Some(Self {
+            left: left as usize,
+            top: top as usize,
+            right: right as usize,
+            bottom: bottom as usize,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ScanRegion {
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    scale: usize,
+}
+
+fn scan_stacked_regions_with_anyd(
     luminance: &[u8],
     width: usize,
     height: usize,
     row_stride: usize,
+    hint: Option<HintRect>,
 ) -> Result<Vec<DetectedCode>, String> {
-    let frame = GrayFrame::with_stride(luminance, width, height, row_stride)
+    let mut codes = Vec::new();
+    let mut seen = HashSet::new();
+    for region in scan_regions(width, height, hint) {
+        let found = scan_stacked_region_with_anyd(luminance, width, height, row_stride, region)?;
+        append_unique(&mut codes, &mut seen, found);
+    }
+    Ok(codes)
+}
+
+fn scan_regions(width: usize, height: usize, hint: Option<HintRect>) -> Vec<ScanRegion> {
+    let mut regions = Vec::new();
+
+    if let Some(hint) = hint {
+        let hint_left = hint.left.min(width.saturating_sub(1));
+        let hint_right = hint.right.min(width).max(hint_left + 1);
+        let hint_top = hint.top.min(height.saturating_sub(1));
+        let hint_bottom = hint.bottom.min(height).max(hint_top + 1);
+        let hint_width = hint_right - hint_left;
+        let hint_height = hint_bottom - hint_top;
+        let margin_x = (hint_width / 3).max(24);
+        let above_height = (hint_height * 4).max(height / 5).max(80);
+        let left = hint_left.saturating_sub(margin_x);
+        let right = (hint_right + margin_x).min(width);
+        let top = hint_top.saturating_sub(above_height);
+        let bottom = (hint_top + hint_height / 3).min(height);
+        if right > left && bottom > top {
+            regions.push(ScanRegion {
+                left,
+                top,
+                width: right - left,
+                height: bottom - top,
+                scale: 2,
+            });
+            regions.push(ScanRegion {
+                left,
+                top,
+                width: right - left,
+                height: bottom - top,
+                scale: 3,
+            });
+        }
+    }
+
+    let upper_height = ((height as f32) * 0.68).round() as usize;
+    regions.push(ScanRegion {
+        left: 0,
+        top: 0,
+        width,
+        height: upper_height.clamp(1, height),
+        scale: 1,
+    });
+
+    let mid_top = ((height as f32) * 0.10).round() as usize;
+    let mid_height = ((height as f32) * 0.74).round() as usize;
+    regions.push(ScanRegion {
+        left: 0,
+        top: mid_top.min(height.saturating_sub(1)),
+        width,
+        height: mid_height.min(height.saturating_sub(mid_top)).max(1),
+        scale: 1,
+    });
+
+    regions.push(ScanRegion {
+        left: 0,
+        top: 0,
+        width,
+        height,
+        scale: 1,
+    });
+
+    regions
+}
+
+fn scan_stacked_region_with_anyd(
+    luminance: &[u8],
+    image_width: usize,
+    image_height: usize,
+    row_stride: usize,
+    region: ScanRegion,
+) -> Result<Vec<DetectedCode>, String> {
+    let region_width = region.width.min(image_width.saturating_sub(region.left));
+    let region_height = region.height.min(image_height.saturating_sub(region.top));
+    if region_width == 0 || region_height == 0 {
+        return Ok(Vec::new());
+    }
+
+    let (buffer, scan_width, scan_height) = copy_region_scaled(
+        luminance,
+        row_stride,
+        region.left,
+        region.top,
+        region_width,
+        region_height,
+        region.scale,
+    );
+    let frame = GrayFrame::new(&buffer, scan_width, scan_height)
         .map_err(|error| format!("anyd frame create failed: {error}"))?;
     let symbols = anyd::pipeline::scan_2d(&frame);
 
@@ -217,10 +368,10 @@ fn scan_stacked_with_anyd(
         let bounds = symbol.location.as_ref().map(|location| {
             let (min, max) = location.outline.bounds();
             (
-                min.x.round() as i32,
-                min.y.round() as i32,
-                max.x.round() as i32,
-                max.y.round() as i32,
+                region.left as i32 + (min.x / region.scale as f32).floor() as i32,
+                region.top as i32 + (min.y / region.scale as f32).floor() as i32,
+                region.left as i32 + (max.x / region.scale as f32).ceil() as i32,
+                region.top as i32 + (max.y / region.scale as f32).ceil() as i32,
             )
         });
         codes.push(code_with_bounds(
@@ -229,12 +380,50 @@ fn scan_stacked_with_anyd(
             format,
             format_name,
             raw,
-            width,
-            height,
+            image_width,
+            image_height,
             bounds,
         ));
     }
     Ok(codes)
+}
+
+fn copy_region_scaled(
+    data: &[u8],
+    row_stride: usize,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    scale: usize,
+) -> (Vec<u8>, usize, usize) {
+    let scale = scale.max(1);
+    if scale == 1 {
+        let mut out = Vec::with_capacity(width * height);
+        for y in 0..height {
+            let src = (top + y) * row_stride + left;
+            out.extend_from_slice(&data[src..src + width]);
+        }
+        return (out, width, height);
+    }
+
+    let scaled_width = width * scale;
+    let scaled_height = height * scale;
+    let mut out = vec![0u8; scaled_width * scaled_height];
+    for y in 0..height {
+        let src = (top + y) * row_stride + left;
+        for sy in 0..scale {
+            let dst_row = (y * scale + sy) * scaled_width;
+            for x in 0..width {
+                let value = data[src + x];
+                let dst = dst_row + x * scale;
+                for sx in 0..scale {
+                    out[dst + sx] = value;
+                }
+            }
+        }
+    }
+    (out, scaled_width, scaled_height)
 }
 
 fn append_unique(

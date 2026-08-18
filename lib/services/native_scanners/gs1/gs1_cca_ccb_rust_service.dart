@@ -128,6 +128,7 @@ class Gs1CcaCcbRustScannerService {
 
   static Future<Gs1CcaCcbRustScanResult> decodeYuvLuminance(
     CameraImage image,
+    Gs1DetectedPosition? linearHint,
   ) async {
     if (!Platform.isAndroid) {
       return const Gs1CcaCcbRustScanResult.empty(
@@ -142,12 +143,14 @@ class Gs1CcaCcbRustScannerService {
 
     try {
       final Plane yPlane = image.planes.first;
+      final Map<String, int>? hint = _hintBounds(linearHint);
       final Map<dynamic, dynamic>? result = await _channel
           .invokeMapMethod('decodeCcaCcbYuv', <String, dynamic>{
             'imageBytes': yPlane.bytes,
             'imageWidth': image.width,
             'imageHeight': image.height,
             'rowStride': yPlane.bytesPerRow,
+            if (hint != null) ...hint,
           });
       return Gs1CcaCcbRustScanResult.fromNative(result);
     } on PlatformException catch (e) {
@@ -161,5 +164,33 @@ class Gs1CcaCcbRustScannerService {
         warnings: <String>['Rust CC-A/B scanner is not registered'],
       );
     }
+  }
+
+  static Map<String, int>? _hintBounds(Gs1DetectedPosition? position) {
+    if (position == null) return null;
+    final List<int> xs = <int>[
+      position.topLeftX,
+      position.topRightX,
+      position.bottomLeftX,
+      position.bottomRightX,
+    ]..sort();
+    final List<int> ys = <int>[
+      position.topLeftY,
+      position.topRightY,
+      position.bottomLeftY,
+      position.bottomRightY,
+    ]..sort();
+    final int left = xs.first;
+    final int top = ys.first;
+    final int right = xs.last;
+    final int bottom = ys.last;
+    if (right <= left || bottom <= top) return null;
+
+    return <String, int>{
+      'hintLeft': left,
+      'hintTop': top,
+      'hintRight': right,
+      'hintBottom': bottom,
+    };
   }
 }

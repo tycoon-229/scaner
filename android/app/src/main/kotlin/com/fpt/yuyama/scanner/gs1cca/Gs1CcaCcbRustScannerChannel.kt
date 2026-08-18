@@ -45,6 +45,10 @@ class Gs1CcaCcbRustScannerChannel private constructor(
         val width = call.argument<Int>("imageWidth") ?: 0
         val height = call.argument<Int>("imageHeight") ?: 0
         val rowStride = call.argument<Int>("rowStride") ?: width
+        val hintLeft = call.argument<Int>("hintLeft") ?: -1
+        val hintTop = call.argument<Int>("hintTop") ?: -1
+        val hintRight = call.argument<Int>("hintRight") ?: -1
+        val hintBottom = call.argument<Int>("hintBottom") ?: -1
 
         if (bytes == null || width <= 0 || height <= 0 || rowStride <= 0) {
             result.error(
@@ -60,7 +64,11 @@ class Gs1CcaCcbRustScannerChannel private constructor(
                 yArray = bytes,
                 width = width,
                 height = height,
-                rowStride = rowStride
+                rowStride = rowStride,
+                hintLeft = hintLeft,
+                hintTop = hintTop,
+                hintRight = hintRight,
+                hintBottom = hintBottom
             )
         }
     }

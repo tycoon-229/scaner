@@ -944,10 +944,16 @@ class _ZxingTabState extends State<ZxingTab>
   }) async {
     if (!_shouldUseAndroidCcaCcbFallbackLive) return null;
 
-    final List<Gs1DetectedCode> candidates = seedCandidates
-        .where(_isTemporalCompositeCandidate)
-        .map(_detectedCodeFromZxing)
+    _pruneRecentCompositeCandidates();
+    final List<Gs1DetectedCode> candidates = _recentCompositeCandidates
+        .map((_RecentCompositeCandidate candidate) => candidate.code)
+        .where(_isDetectedCompositeCandidate)
         .toList();
+    candidates.addAll(
+      seedCandidates
+          .where(_isTemporalCompositeCandidate)
+          .map(_detectedCodeFromZxing),
+    );
     _rememberDetectedCompositeCandidates(candidates, source: 'ZXing-CCAB');
 
     Gs1CompositeAssembly? assembly =
@@ -956,13 +962,19 @@ class _ZxingTabState extends State<ZxingTab>
     if (assembly != null) return assembly;
 
     final Gs1CcaCcbRustScanResult rustResult =
-        await Gs1CcaCcbRustScannerService.decodeYuvLuminance(image).timeout(
+        await Gs1CcaCcbRustScannerService.decodeYuvLuminance(
+          image,
+          _bestCcaCcbLinearHint(candidates),
+        ).timeout(
           _androidCcaCcbRustTimeout,
           onTimeout: () => const Gs1CcaCcbRustScanResult.empty(
             warnings: <String>['Rust CC-A/B scan timed out'],
           ),
         );
 
+    debugPrint(
+      '[ZXing][RustCCAB] duration=${rustResult.durationMs}ms native=${rustResult.nativeDurationMs}ms candidateCount=${rustResult.codes.length}',
+    );
     if (rustResult.warnings.isNotEmpty) {
       debugPrint(
         '[ZXing][RustCCAB] warnings: ${rustResult.warnings.join(' | ')}',
@@ -993,6 +1005,18 @@ class _ZxingTabState extends State<ZxingTab>
       debugPrint(
         '[ZXing][RustCCAB] candidates without pair: ${candidates.map(_describeDetectedCompositeCandidate).join(' | ')}',
       );
+    }
+    return null;
+  }
+
+  Gs1DetectedPosition? _bestCcaCcbLinearHint(List<Gs1DetectedCode> candidates) {
+    for (final Gs1DetectedCode code in candidates.reversed) {
+      if (code.position == null) continue;
+      if (code.format == Gs1DetectedFormat.dataBarLimited ||
+          code.format == Gs1DetectedFormat.dataBar ||
+          code.format == Gs1DetectedFormat.dataBarExpanded) {
+        return code.position;
+      }
     }
     return null;
   }

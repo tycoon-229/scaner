@@ -16,7 +16,11 @@ object Gs1CcaCcbRustDecoder {
         yArray: ByteArray,
         width: Int,
         height: Int,
-        rowStride: Int
+        rowStride: Int,
+        hintLeft: Int,
+        hintTop: Int,
+        hintRight: Int,
+        hintBottom: Int
     ): Map<String, Any?> {
         val loadError = libraryLoadError
         if (loadError != null) {
@@ -24,7 +28,16 @@ object Gs1CcaCcbRustDecoder {
         }
 
         val startedAt = System.nanoTime()
-        val json = decodeYuvNative(yArray, width, height, rowStride).orEmpty()
+        val json = decodeYuvNative(
+            yArray,
+            width,
+            height,
+            rowStride,
+            hintLeft,
+            hintTop,
+            hintRight,
+            hintBottom
+        ).orEmpty()
         if (json.isEmpty()) {
             return emptyResult("rust-yuv", durationSince(startedAt), "Rust decoder returned empty JSON")
         }
@@ -52,7 +65,11 @@ object Gs1CcaCcbRustDecoder {
         imageBytes: ByteArray,
         width: Int,
         height: Int,
-        rowStride: Int
+        rowStride: Int,
+        hintLeft: Int,
+        hintTop: Int,
+        hintRight: Int,
+        hintBottom: Int
     ): String?
 
     private fun durationSince(startedAt: Long): Int {
