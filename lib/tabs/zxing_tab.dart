@@ -961,10 +961,11 @@ class _ZxingTabState extends State<ZxingTab>
         _gs1CompositeAssembler.assemble(candidates);
     if (assembly != null) return assembly;
 
+    final Gs1DetectedPosition? linearHint = _bestCcaCcbLinearHint(candidates);
     final Gs1CcaCcbRustScanResult rustResult =
         await Gs1CcaCcbRustScannerService.decodeYuvLuminance(
           image,
-          _bestCcaCcbLinearHint(candidates),
+          linearHint,
         ).timeout(
           _androidCcaCcbRustTimeout,
           onTimeout: () => const Gs1CcaCcbRustScanResult.empty(
@@ -1439,6 +1440,16 @@ class _ZxingTabState extends State<ZxingTab>
     );
   }
 
+  bool get _recentHasCcaCcbLinearCarrier {
+    _pruneRecentCompositeCandidates();
+    return _recentCompositeCandidates.any(
+      (_RecentCompositeCandidate candidate) =>
+          candidate.code.format == Gs1DetectedFormat.dataBar ||
+          candidate.code.format == Gs1DetectedFormat.dataBarExpanded ||
+          candidate.code.format == Gs1DetectedFormat.dataBarLimited,
+    );
+  }
+
   void _pruneRecentCompositeCandidates() {
     final DateTime now = DateTime.now();
     _recentCompositeCandidates.removeWhere(
@@ -1674,6 +1685,7 @@ class _ZxingTabState extends State<ZxingTab>
     if (_noCandidateFrameCount < _androidCcaCcbFallbackAfterNoCandidateFrames) {
       return false;
     }
+    if (!_recentHasCcaCcbLinearCarrier) return false;
 
     final DateTime now = DateTime.now();
     final DateTime? lastFallbackAt = _lastAndroidCcaCcbFallbackAt;
@@ -1903,7 +1915,7 @@ class _ZxingTabState extends State<ZxingTab>
     milliseconds: 900,
   );
   static const int _androidCcaCcbFallbackAfterNoCandidateFrames = 3;
-  static const Duration _androidCcaCcbRustTimeout = Duration(milliseconds: 450);
+  static const Duration _androidCcaCcbRustTimeout = Duration(milliseconds: 900);
   static const Duration _androidCcaCcbFallbackInterval = Duration(
     milliseconds: 1500,
   );

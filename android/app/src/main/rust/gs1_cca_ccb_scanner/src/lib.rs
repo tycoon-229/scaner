@@ -130,13 +130,9 @@ fn decode_yuv(
         Err(error) => warnings.push(error),
     }
 
-    match scan_stacked_regions_with_anyd(
-        &luminance,
-        width,
-        height,
-        row_stride,
-        HintRect::from_jints(hint_left, hint_top, hint_right, hint_bottom),
-    ) {
+    let stacked_hint = HintRect::from_jints(hint_left, hint_top, hint_right, hint_bottom)
+        .or_else(|| hint_from_linear_codes(&codes));
+    match scan_stacked_regions_with_anyd(&luminance, width, height, row_stride, stacked_hint) {
         Ok(found) => append_unique(&mut codes, &mut seen, found),
         Err(error) => warnings.push(error),
     }
@@ -266,65 +262,66 @@ fn scan_stacked_regions_with_anyd(
 fn scan_regions(width: usize, height: usize, hint: Option<HintRect>) -> Vec<ScanRegion> {
     let mut regions = Vec::new();
 
-    if let Some(hint) = hint {
-        let hint_left = hint.left.min(width.saturating_sub(1));
-        let hint_right = hint.right.min(width).max(hint_left + 1);
-        let hint_top = hint.top.min(height.saturating_sub(1));
-        let hint_bottom = hint.bottom.min(height).max(hint_top + 1);
-        let hint_width = hint_right - hint_left;
-        let hint_height = hint_bottom - hint_top;
-        let margin_x = (hint_width / 3).max(24);
-        let above_height = (hint_height * 4).max(height / 5).max(80);
-        let left = hint_left.saturating_sub(margin_x);
-        let right = (hint_right + margin_x).min(width);
-        let top = hint_top.saturating_sub(above_height);
-        let bottom = (hint_top + hint_height / 3).min(height);
-        if right > left && bottom > top {
+    let Some(hint) = hint else {
+        return regions;
+    };
+
+    let hint_left = hint.left.min(width.saturating_sub(1));
+    let hint_right = hint.right.min(width).max(hint_left + 1);
+    let hint_top = hint.top.min(height.saturating_sub(1));
+    let hint_bottom = hint.bottom.min(height).max(hint_top + 1);
+    let hint_width = hint_right - hint_left;
+    let hint_height = hint_bottom - hint_top;
+    let margin_x = (hint_width / 3).max(24);
+    let above_height = (hint_height * 4).max(height / 5).max(80);
+    let left = hint_left.saturating_sub(margin_x);
+    let right = (hint_right + margin_x).min(width);
+    let top = hint_top.saturating_sub(above_height);
+    let bottom = (hint_top + hint_height / 3).min(height);
+    if right > left && bottom > top {
+        let region_width = right - left;
+        let region_height = bottom - top;
+        regions.push(ScanRegion {
+            left,
+            top,
+            width: region_width,
+            height: region_height,
+            scale: 2,
+        });
+        if region_width.saturating_mul(region_height) <= 180_000 {
             regions.push(ScanRegion {
                 left,
                 top,
-                width: right - left,
-                height: bottom - top,
-                scale: 2,
-            });
-            regions.push(ScanRegion {
-                left,
-                top,
-                width: right - left,
-                height: bottom - top,
+                width: region_width,
+                height: region_height,
                 scale: 3,
             });
         }
     }
 
-    let upper_height = ((height as f32) * 0.68).round() as usize;
-    regions.push(ScanRegion {
-        left: 0,
-        top: 0,
-        width,
-        height: upper_height.clamp(1, height),
-        scale: 1,
-    });
-
-    let mid_top = ((height as f32) * 0.10).round() as usize;
-    let mid_height = ((height as f32) * 0.74).round() as usize;
-    regions.push(ScanRegion {
-        left: 0,
-        top: mid_top.min(height.saturating_sub(1)),
-        width,
-        height: mid_height.min(height.saturating_sub(mid_top)).max(1),
-        scale: 1,
-    });
-
-    regions.push(ScanRegion {
-        left: 0,
-        top: 0,
-        width,
-        height,
-        scale: 1,
-    });
-
     regions
+}
+
+fn hint_from_linear_codes(codes: &[DetectedCode]) -> Option<HintRect> {
+    for code in codes.iter().rev() {
+        if code.format != FORMAT_DATABAR && code.format != FORMAT_DATABAR_EXPANDED {
+            continue;
+        }
+
+        let left = code.top_left_x.min(code.bottom_left_x).max(0) as usize;
+        let top = code.top_left_y.min(code.top_right_y).max(0) as usize;
+        let right = code.top_right_x.max(code.bottom_right_x).max(0) as usize;
+        let bottom = code.bottom_left_y.max(code.bottom_right_y).max(0) as usize;
+        if right > left && bottom > top {
+            return Some(HintRect {
+                left,
+                top,
+                right,
+                bottom,
+            });
+        }
+    }
+    None
 }
 
 fn scan_stacked_region_with_anyd(
