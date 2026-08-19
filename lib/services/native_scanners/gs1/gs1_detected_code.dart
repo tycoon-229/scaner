@@ -49,6 +49,44 @@ abstract class Gs1DetectedFormat {
   }
 }
 
+class Gs1DataBarTextNormalizer {
+  const Gs1DataBarTextNormalizer._();
+
+  static String normalize({
+    required String text,
+    String? formatName,
+    int? format,
+  }) {
+    final String upperFormat = (formatName ?? '').toUpperCase();
+    final bool isDataBar = format == null
+        ? upperFormat.contains('DATABAR')
+        : format == Gs1DetectedFormat.dataBar ||
+              format == Gs1DetectedFormat.dataBarLimited;
+    final bool isOmnidirectional =
+        isDataBar &&
+        upperFormat.contains('DATABAR') &&
+        !upperFormat.contains('EXPANDED') &&
+        !upperFormat.contains('STACKED');
+
+    if (!isOmnidirectional) return text;
+    if (text.contains('(') || text.contains('\u001d')) return text;
+    if (!RegExp(r'^\d{14}$').hasMatch(text)) return text;
+    if (!_hasValidGtinCheckDigit(text)) return text;
+
+    return '(01)$text';
+  }
+
+  static bool _hasValidGtinCheckDigit(String value) {
+    int sum = 0;
+    for (int index = 0; index < value.length - 1; index++) {
+      final int digit = value.codeUnitAt(index) - 48;
+      sum += digit * (index.isEven ? 3 : 1);
+    }
+    final int expected = (10 - (sum % 10)) % 10;
+    return expected == value.codeUnitAt(value.length - 1) - 48;
+  }
+}
+
 class Gs1DetectedPosition {
   const Gs1DetectedPosition({
     required this.imageWidth,

@@ -577,6 +577,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   Gs1DetectedCode _detectedCodeFromDynamsoft(BarcodeResultItem item) {
     final int? format = Gs1DetectedFormat.fromName(item.formatString);
+    final String text = Gs1DataBarTextNormalizer.normalize(
+      text: item.text,
+      formatName: item.formatString,
+      format: format,
+    );
     final Quadrilateral loc = item.location;
     Gs1DetectedPosition? pos;
     if (loc.points.length >= 4) {
@@ -594,7 +599,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       );
     }
     return Gs1DetectedCode(
-      text: item.text,
+      text: text,
       format: format,
       isValid: true,
       position: pos,
@@ -603,7 +608,11 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   ScanEntry _entryForBarcode(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString;
-    final String rawText = barcode.text;
+    final String rawText = Gs1DataBarTextNormalizer.normalize(
+      text: barcode.text,
+      formatName: formatName,
+      format: Gs1DetectedFormat.fromName(formatName),
+    );
     final bool looksLikeGs1 = _looksLikeGs1(formatName, rawText);
 
     // Replace Dynamsoft composite pipe separator '|' with GS separator
@@ -716,6 +725,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     final String normalizedFormat = formatName.toUpperCase();
     return normalizedFormat.contains('GS1') ||
         normalizedFormat.contains('COMPOSITE') ||
+        normalizedFormat.contains('DATABAR') ||
         text.contains('\u001d') ||
         text.contains('\u241d') ||
         RegExp(

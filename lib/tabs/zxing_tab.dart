@@ -182,7 +182,7 @@ class _ZxingTabState extends State<ZxingTab>
         final Codes res = await zx
             .processCameraImageMulti(image, params)
             .timeout(
-              const Duration(milliseconds: 1000),
+              const Duration(milliseconds: 4000),
               onTimeout: () => Codes(),
             );
 
@@ -674,11 +674,12 @@ class _ZxingTabState extends State<ZxingTab>
       required int cropTop,
       required int cropWidth,
       required int cropHeight,
+      int format = Format.any,
       int maxSize = 1600,
     }) {
       return DecodeParams(
         imageFormat: baseParams.imageFormat,
-        format: Format.any,
+        format: format,
         width: image.width,
         height: image.height,
         cropLeft: cropLeft,
@@ -706,20 +707,35 @@ class _ZxingTabState extends State<ZxingTab>
             baseParams,
           ),
         ];
-    if (baseIsFullFrame) return passes;
 
-    passes.addAll(<MapEntry<String, DecodeParams>>[
+    if (!baseIsFullFrame) {
+      passes.add(
+        MapEntry<String, DecodeParams>(
+          'full',
+          pass(
+            cropLeft: 0,
+            cropTop: 0,
+            cropWidth: image.width,
+            cropHeight: image.height,
+            maxSize: 1600,
+          ),
+        ),
+      );
+    }
+
+    passes.add(
       MapEntry<String, DecodeParams>(
-        'full',
+        'databar-limited',
         pass(
           cropLeft: 0,
           cropTop: 0,
           cropWidth: image.width,
           cropHeight: image.height,
-          maxSize: 1600,
+          format: CustomFormat.dataBarLimited,
+          maxSize: _linearCarrierMaxSize,
         ),
       ),
-    ]);
+    );
 
     return passes;
   }
@@ -1372,13 +1388,21 @@ class _ZxingTabState extends State<ZxingTab>
     if (_isUnpairedCompositeComponent(code)) return null;
 
     final String key = code.formatName ?? 'UNKNOWN';
+    final bool isGs1Format = _looksLikeGs1Format(key);
+
+    final String rawText = Gs1DataBarTextNormalizer.normalize(
+      text: code.text!,
+      formatName: key,
+      format: code.format,
+    );
+
     final String value =
         Gs1ElementStringParser.tryFormatElementString(
-          code.text!,
+          rawText,
           fallbackFormat: code.format,
-          requireGs1Marker: !_looksLikeGs1Format(key),
+          requireGs1Marker: !isGs1Format,
         ) ??
-        code.text!;
+        rawText;
 
     return ScanEntry(key, value);
   }
@@ -1693,24 +1717,28 @@ class _ZxingTabState extends State<ZxingTab>
 
   bool get _shouldUseMlKitPrimaryLive => Platform.isAndroid;
 
-  static const Duration _singleCropPassTimeout = Duration(milliseconds: 260);
-  static const Duration _singleFullPassTimeout = Duration(milliseconds: 520);
+  static const Duration _singleCropPassTimeout = Duration(milliseconds: 1500);
+  static const Duration _singleFullPassTimeout = Duration(milliseconds: 3500);
   static const int _singleFullFrameMaxSize = 1600;
   static const int _liveCompositeMaxPasses = 2;
-  static const Duration _liveCompositePassTimeout = Duration(milliseconds: 220);
-  static const Duration _mlKitCompositePassTimeout = Duration(
-    milliseconds: 900,
+  static const Duration _liveCompositePassTimeout = Duration(
+    milliseconds: 1800,
   );
-  static const Duration _linearCarrierPassTimeout = Duration(milliseconds: 320);
+  static const Duration _mlKitCompositePassTimeout = Duration(
+    milliseconds: 1500,
+  );
+  static const Duration _linearCarrierPassTimeout = Duration(
+    milliseconds: 1800,
+  );
   static const int _linearCarrierMaxSize = 2400;
   static const int _reacquireCompositeMaxPasses = 1;
   static const Duration _reacquireCompositePassTimeout = Duration(
-    milliseconds: 450,
+    milliseconds: 1200,
   );
   static const int _reacquireAfterNoCandidateFrames = 3;
   static const Duration _reacquireInterval = Duration(seconds: 2);
   static const Duration _galleryCompositePassTimeout = Duration(
-    milliseconds: 900,
+    milliseconds: 2500,
   );
   static const Duration _recentCompositeCandidateTtl = Duration(seconds: 8);
   static const Duration _compositeCarrierHoldDuration =

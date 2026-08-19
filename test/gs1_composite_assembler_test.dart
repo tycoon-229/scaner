@@ -213,6 +213,44 @@ void main() {
   });
 
   group('Gs1ElementStringParser', () {
+    test('normalizes only valid bare DataBar GTIN payloads', () {
+      expect(
+        Gs1DataBarTextNormalizer.normalize(
+          formatName: 'DATABAR',
+          format: Gs1DetectedFormat.dataBar,
+          text: '04912345678904',
+        ),
+        '(01)04912345678904',
+      );
+      expect(
+        Gs1DataBarTextNormalizer.normalize(
+          formatName: 'DATABAR_EXPANDED',
+          format: Gs1DetectedFormat.dataBarExpanded,
+          text: '1726010110LOT123',
+        ),
+        '1726010110LOT123',
+      );
+      expect(
+        Gs1DataBarTextNormalizer.normalize(
+          formatName: 'DATABAR',
+          format: Gs1DetectedFormat.dataBar,
+          text: '04912345678905',
+        ),
+        '04912345678905',
+      );
+    });
+
+    test('normalizes bare DataBar Limited GTIN payloads', () {
+      expect(
+        Gs1DataBarTextNormalizer.normalize(
+          text: '09521234543213',
+          formatName: 'GS1_DATABAR_LIMITED',
+          format: Gs1DetectedFormat.dataBarLimited,
+        ),
+        '(01)09521234543213',
+      );
+    });
+
     test('parses bracketed element strings', () {
       final List<Gs1Element> elements = Gs1ElementStringParser.parse(
         '(01)09506000134352(17)260101(10)LOT123',
@@ -264,6 +302,24 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test('recovers AI (01) for GS1 DataBar when raw text lacks prefix', () {
+      // GS1 DataBar Omnidirectional may return bare data without AI prefix
+      // ZXing might return "0491234567890​4" instead of "(01)0491234567890​4"
+      // This test verifies that when we detect GS1 DataBar format
+      // and prepend "(01)", the parser handles it correctly
+
+      // Simulate the fixed format: prepend (01)
+      final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+        '(01)0491234567890​4',
+      );
+
+      expect(elements, isNotEmpty);
+      expect(elements.first.ai, '01');
+      // The formatted result should have (01) prefix
+      final String formatted = Gs1ElementStringParser.formatElements(elements);
+      expect(formatted, startsWith('(01)'));
     });
   });
 }
