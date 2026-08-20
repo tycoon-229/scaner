@@ -12,66 +12,8 @@ import 'package:poc_multi_scan/widgets/scanner_camera_preview.dart';
 import 'package:poc_multi_scan/widgets/scanner_live_scaffold.dart';
 import 'package:poc_multi_scan/widgets/scanner_message.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Top-level isolate helper (must be outside class for compute())
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Data passed into the isolate for YUV → NV21 conversion.
-class _ConvertParams {
-  const _ConvertParams({
-    required this.yBytes,
-    required this.uBytes,
-    required this.vBytes,
-    required this.yRowStride,
-    required this.uvPixelStride,
-    required this.width,
-    required this.height,
-  });
-
-  final Uint8List yBytes;
-  final Uint8List uBytes;
-  final Uint8List vBytes;
-  final int yRowStride;
-  final int uvPixelStride;
-  final int width;
-  final int height;
-}
-
-/// Runs in a background isolate — no Flutter UI code allowed here.
-Uint8List _yuv420ToNv21Isolate(_ConvertParams p) {
-  final int ySize = p.width * p.height;
-  final Uint8List nv21 = Uint8List(ySize + ySize ~/ 2);
-
-  // Copy Y plane row by row (handles non-contiguous strides)
-  for (int row = 0; row < p.height; row++) {
-    nv21.setRange(
-      row * p.width,
-      row * p.width + p.width,
-      p.yBytes,
-      row * p.yRowStride,
-    );
-  }
-
-  // Interleave V, U → NV21
-  int offset = ySize;
-  for (int i = 0; i < p.uBytes.length; i += p.uvPixelStride) {
-    if (offset + 1 >= nv21.length) break;
-    nv21[offset++] = p.vBytes[i];
-    nv21[offset++] = p.uBytes[i];
-  }
-
-  return nv21;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DynamsoftTab
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Demo tab wiring [CameraScannerWidget] to [CaptureVisionRouter]
-/// for frame-by-frame Dynamsoft barcode decoding.
-///
-/// All heavy work (YUV conversion) is offloaded to a background isolate
-/// via [compute] so the camera preview stays smooth.
+/// Optimized DynamsoftTab wiring [CameraScannerWidget] to [CaptureVisionRouter]
+/// for ultra-fast, non-laggy live camera barcode decoding.
 class DynamsoftTab extends StatefulWidget {
   const DynamsoftTab({super.key});
 
@@ -98,8 +40,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   ScanMode _scanMode = ScanMode.single;
   bool _showMultiResultScreen = false;
 
-  /// Prevents re-entrant captures (belt-and-suspenders on top of
-  /// [CameraScannerWidget]'s own _isProcessing guard).
+  /// Prevents re-entrant captures
   bool _isCaptureRunning = false;
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -152,9 +93,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<bool?> _handleFrame(CameraImage image, Rect? cropRect) async {
-    // Extra guard: skip if a capture is already in-flight
     if (_isCaptureRunning) return false;
     _isCaptureRunning = true;
+
     final ScanMonitorOperation operation = _monitor.startDecode(
       source: ScanMonitorSource.liveCamera,
       modeLabel: _modeLabel,
@@ -162,14 +103,14 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     bool hasDecodedCode = false;
 
     try {
-      // 1. Build ImageData (YUV conversion runs in isolate → non-blocking)
-      final ImageData? imageData = await _buildImageData(image);
+      // 1. Build ImageData (Fast memory copy with optional cropping, zero Isolate overhead)
+      final ImageData? imageData = _buildImageData(image, cropRect);
       if (imageData == null) return false;
 
-      // 2. Decode with Dynamsoft
+      // 2. Decode with Dynamsoft using SpeedFirst template for live stream
       final CapturedResult result = await CaptureVisionRouter.instance.capture(
         imageData,
-        EnumPresetTemplate.readBarcodesReadRateFirst,
+        EnumPresetTemplate.readBarcodesSpeedFirst,
       );
 
       // 3. Extract barcodes
@@ -243,8 +184,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       final CapturedResult result = await CaptureVisionRouter.instance
           .captureFile(
             path,
-            EnumPresetTemplate
-                .readBarcodesReadRateFirst, // best accuracy for still images
+            EnumPresetTemplate.readBarcodesReadRateFirst, // best accuracy for still images
           );
 
       final List<BarcodeResultItem> barcodes =
@@ -263,7 +203,6 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         });
       } else {
         showScannerMessage(context, 'No valid code found in the image');
-        // Resume stream so user can scan again
         _resumeScan();
       }
     } catch (e) {
@@ -276,37 +215,83 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // CameraImage → Dynamsoft ImageData
+  // CameraImage → Dynamsoft ImageData (Optimized & Cropped)
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<ImageData?> _buildImageData(CameraImage image) async {
+  ImageData? _buildImageData(CameraImage image, Rect? cropRect) {
     try {
       switch (image.format.group) {
         case ImageFormatGroup.yuv420:
-          // Offload YUV → NV21 conversion to a background isolate
-          final Uint8List nv21 = await compute(
-            _yuv420ToNv21Isolate,
-            _ConvertParams(
-              yBytes: image.planes[0].bytes,
-              uBytes: image.planes[1].bytes,
-              vBytes: image.planes[2].bytes,
-              yRowStride: image.planes[0].bytesPerRow,
-              uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
-              width: image.width,
-              height: image.height,
-            ),
-          );
+          int cropLeft = 0;
+          int cropTop = 0;
+          int cropWidth = image.width;
+          int cropHeight = image.height;
+
+          if (cropRect != null) {
+            cropLeft = cropRect.left.round().clamp(0, image.width - 1);
+            cropTop = cropRect.top.round().clamp(0, image.height - 1);
+            cropWidth = cropRect.width.round().clamp(1, image.width - cropLeft);
+            cropHeight = cropRect.height.round().clamp(1, image.height - cropTop);
+          }
+
+          // Ensure even dimensions for 4:2:0 YUV alignment
+          if (cropWidth % 2 != 0) cropWidth--;
+          if (cropHeight % 2 != 0) cropHeight--;
+
+          final int ySize = cropWidth * cropHeight;
+          final Uint8List nv21 = Uint8List(ySize + (ySize ~/ 2));
+
+          final Uint8List yPlane = image.planes[0].bytes;
+          final Uint8List uPlane = image.planes[1].bytes;
+          final Uint8List vPlane = image.planes[2].bytes;
+
+          final int yRowStride = image.planes[0].bytesPerRow;
+          final int uvRowStride = image.planes[1].bytesPerRow;
+          final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
+
+          // 1. Copy Y plane (cropped)
+          for (int row = 0; row < cropHeight; row++) {
+            final int srcOffset = (cropTop + row) * yRowStride + cropLeft;
+            final int dstOffset = row * cropWidth;
+            nv21.setRange(
+              dstOffset,
+              dstOffset + cropWidth,
+              yPlane,
+              srcOffset,
+            );
+          }
+
+          // 2. Interleave V, U → NV21 (cropped)
+          int nv21Offset = ySize;
+          final int uvCropTop = cropTop ~/ 2;
+          final int uvCropLeft = cropLeft ~/ 2;
+          final int uvCropHeight = cropHeight ~/ 2;
+          final int uvCropWidth = cropWidth ~/ 2;
+
+          for (int row = 0; row < uvCropHeight; row++) {
+            final int rowStart = (uvCropTop + row) * uvRowStride;
+            for (int col = 0; col < uvCropWidth; col++) {
+              final int uvIndex = rowStart + (uvCropLeft + col) * uvPixelStride;
+              if (uvIndex < vPlane.length &&
+                  uvIndex < uPlane.length &&
+                  nv21Offset + 1 < nv21.length) {
+                nv21[nv21Offset++] = vPlane[uvIndex];
+                nv21[nv21Offset++] = uPlane[uvIndex];
+              }
+            }
+          }
+
           return ImageData(
             bytes: nv21,
-            width: image.width,
-            height: image.height,
-            stride: image.width,
+            width: cropWidth,
+            height: cropHeight,
+            stride: cropWidth,
             format: EnumImagePixelFormat.nv21,
             orientation: 0,
           );
 
         case ImageFormatGroup.bgra8888:
-          // iOS BGRA — already contiguous, copy directly
+          // iOS BGRA format
           return ImageData(
             bytes: image.planes[0].bytes,
             width: image.width,
@@ -364,9 +349,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         tabIndex: 1,
         controller: _scannerController,
         scanMode: _scanMode,
-        resolution: ResolutionPreset.medium,
-        scanDelay: const Duration(milliseconds: 300),
-        frameIntervalMs: 400,
+        resolution: ResolutionPreset.high,
+        scanDelay: const Duration(milliseconds: 50),
+        frameIntervalMs: _scanMode == ScanMode.single ? 150 : 200,
         onFrameCaptured: _handleFrame,
         onGalleryImageSelected: _handleGalleryImage,
         onControllerCreated: (CameraController? cam, Exception? err) {
