@@ -1,18 +1,17 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Feedback;
 import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode.dart';
 import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode_capture.dart';
-import 'package:scandit_flutter_datacapture_barcode/scandit_flutter_datacapture_barcode_count.dart';
 import 'package:scandit_flutter_datacapture_core/scandit_flutter_datacapture_core.dart'
     hide Rect;
 
 import 'package:poc_multi_scan/config/license_keys.dart';
-import 'package:poc_multi_scan/services/native_scanners/gs1/gs1_composite_assembler.dart';
 import 'package:poc_multi_scan/utils/scan_entries.dart';
 import 'package:poc_multi_scan/utils/scan_monitor.dart';
 import 'package:poc_multi_scan/widgets/scan_result_widget.dart';
 import 'package:poc_multi_scan/widgets/camera_scanner/scan_mode.dart';
 import 'package:poc_multi_scan/widgets/camera_scanner/scanner_overlay.dart';
 import 'package:poc_multi_scan/widgets/scanner_live_scaffold.dart';
+import 'package:poc_multi_scan/widgets/scanner_message.dart';
 
 const List<Symbology> activeSymbologies = <Symbology>[
   Symbology.ean13Upca,
@@ -33,11 +32,10 @@ const List<Symbology> activeSymbologies = <Symbology>[
   Symbology.microPdf417,
 ];
 
-// Helper listener classes for Scandit SDK callbacks
+// Helper listener class for Scandit BarcodeCapture callbacks
 class _ScanditCaptureListener implements BarcodeCaptureListener {
   _ScanditCaptureListener(this.onScan);
-  final void Function(BarcodeCapture capture, BarcodeCaptureSession session)
-  onScan;
+  final void Function(BarcodeCapture capture, BarcodeCaptureSession session) onScan;
 
   @override
   Future<void> didScan(
@@ -56,21 +54,7 @@ class _ScanditCaptureListener implements BarcodeCaptureListener {
   ) async {}
 }
 
-class _ScanditCountListener implements BarcodeCountListener {
-  _ScanditCountListener(this.onScan);
-  final void Function(BarcodeCount count, BarcodeCountSession session) onScan;
-
-  @override
-  Future<void> didScan(
-    BarcodeCount barcodeCount,
-    BarcodeCountSession session,
-    Future<FrameData> Function() getFrameData,
-  ) async {
-    onScan(barcodeCount, session);
-  }
-}
-
-/// Scandit Tab integrating Scandit Native Camera & View with Custom Scanner Overlay UI.
+/// Scandit Tab integrating Scandit Native Camera Engine with 100% custom Flutter Scanner UI Overlay.
 class ScanditTab extends StatefulWidget {
   const ScanditTab({super.key});
 
@@ -85,14 +69,11 @@ class _ScanditTabState extends State<ScanditTab>
 
   DataCaptureContext? _context;
   BarcodeCapture? _barcodeCapture;
-  BarcodeCount? _barcodeCount;
-  BarcodeCountView? _barcodeCountView;
   DataCaptureView? _dataCaptureView;
   Camera? _camera;
   TabController? _tabController;
 
   _ScanditCaptureListener? _captureListener;
-  _ScanditCountListener? _countListener;
 
   bool _isInitializing = true;
   String? _initError;
@@ -153,7 +134,7 @@ class _ScanditTabState extends State<ScanditTab>
       }
       _camera = camera;
 
-      // 1. Single scan mode: BarcodeCapture
+      // BarcodeCapture mode used for both Single scan and Continuous Multi scan
       final BarcodeCaptureSettings captureSettings = BarcodeCaptureSettings();
       final compositeTypes = {
         CompositeType.a,
@@ -165,39 +146,28 @@ class _ScanditTabState extends State<ScanditTab>
       }
       captureSettings.enableSymbologiesForCompositeTypes(compositeTypes);
       captureSettings.enabledCompositeTypes = compositeTypes;
+
+      // Set code duplicate filter to 800ms for smooth continuous multi-scanning
+      captureSettings.codeDuplicateFilter = const Duration(milliseconds: 800);
+
       final BarcodeCapture barcodeCapture = BarcodeCapture(captureSettings);
-      _captureListener = _ScanditCaptureListener(_onSingleScan);
+      _captureListener = _ScanditCaptureListener(_onScanCaptured);
       barcodeCapture.addListener(_captureListener!);
 
-      // 2. Multi scan mode: BarcodeCount
-      final BarcodeCountSettings countSettings = BarcodeCountSettings();
-      for (final Symbology symbology in activeSymbologies) {
-        countSettings.enableSymbology(symbology, true);
-      }
-      final BarcodeCount barcodeCount = BarcodeCount(countSettings);
-      _countListener = _ScanditCountListener(_onMultiScan);
-      barcodeCount.addListener(_countListener!);
+      // Tắt chế độ rung và âm thanh khi quét thành công
+      barcodeCapture.feedback.success = Feedback(null, null);
 
       _context = context;
       _barcodeCapture = barcodeCapture;
-      _barcodeCount = barcodeCount;
+
+      await context.addMode(barcodeCapture);
 
       _dataCaptureView = DataCaptureView.forContext(context);
-      _dataCaptureView?.addOverlay(BarcodeCaptureOverlay(barcodeCapture));
 
-      _barcodeCountView =
-          BarcodeCountView.forContextWithMode(context, barcodeCount)
-            ..shouldShowUserGuidanceView = false
-            ..shouldShowHints = false
-            ..shouldShowToolbar = true
-            ..shouldShowScanAreaGuides = false
-            ..shouldShowListButton = false
-            ..shouldShowExitButton = false
-            ..shouldShowShutterButton = true
-            ..shouldShowSingleScanButton = false
-            ..shouldShowClearHighlightsButton = false;
-
-      await _updateModeInContext();
+      // Create overlay with transparent brush so native Scandit highlights do not interfere with Flutter UI
+      final overlay = BarcodeCaptureOverlay(barcodeCapture);
+      overlay.brush = Brush.transparent;
+      _dataCaptureView?.addOverlay(overlay);
 
       final isTab3Active = _tabController?.index == 2;
       if (isTab3Active) {
@@ -223,12 +193,10 @@ class _ScanditTabState extends State<ScanditTab>
   }
 
   ScanEntry _extractBarcodeResult(Barcode b) {
-    final String linearText = b.data ?? b.rawData;
-    final String? compositeText =
-        _nonEmpty(b.compositeData) ?? _nonEmpty(b.compositeRawData);
-    final String text =
-        _formatGs1CompositeText(b, linearText, compositeText) ??
-        _fallbackDisplayText(linearText, compositeText);
+    String text = b.data ?? b.rawData;
+    if (b.compositeData != null && b.compositeData!.isNotEmpty) {
+      text = '$text | Composite: ${b.compositeData}';
+    }
 
     String formatName = b.symbology
         .toString()
@@ -258,46 +226,17 @@ class _ScanditTabState extends State<ScanditTab>
     return MapEntry<String, String>(formatName, text);
   }
 
-  String? _formatGs1CompositeText(
-    Barcode barcode,
-    String linearText,
-    String? compositeText,
-  ) {
-    final bool looksLikeGs1 =
-        barcode.isGS1DataCarrier ||
-        barcode.compositeFlag != CompositeFlag.none ||
-        compositeText != null;
-    if (!looksLikeGs1) return null;
+  void _onScanCaptured(BarcodeCapture capture, BarcodeCaptureSession session) {
+    if (!mounted) return;
 
-    final List<Gs1Element> elements = <Gs1Element>[
-      ...Gs1ElementStringParser.parse(linearText),
-      if (compositeText != null) ...Gs1ElementStringParser.parse(compositeText),
-    ];
-    final String formatted = Gs1ElementStringParser.formatElements(elements);
-    return formatted.isEmpty ? null : formatted;
-  }
-
-  String _fallbackDisplayText(String linearText, String? compositeText) {
-    if (compositeText == null) return linearText;
-    return '$linearText | Composite: $compositeText';
-  }
-
-  String? _nonEmpty(String? value) {
-    if (value == null || value.isEmpty) return null;
-    return value;
-  }
-
-  void _onSingleScan(BarcodeCapture capture, BarcodeCaptureSession session) {
     final Barcode? b = session.newlyRecognizedBarcode;
-    if (b != null && mounted && _singleResult == null) {
-      final entry = _extractBarcodeResult(b);
-      if (entry.value.isNotEmpty) {
-        logScanResult(
-          'Scandit',
-          entry,
-          mode: _modeLabel,
-          origin: 'live-camera',
-        );
+    if (b == null) return;
+
+    final entry = _extractBarcodeResult(b);
+    if (entry.value.isEmpty) return;
+
+    if (_scanMode == ScanMode.single) {
+      if (_singleResult == null) {
         _monitor.recordNativeEvent(
           uniqueCount: 1,
           duplicateCount: 0,
@@ -308,52 +247,17 @@ class _ScanditTabState extends State<ScanditTab>
         });
         _camera?.switchToDesiredState(FrameSourceState.off);
       }
-    }
-  }
-
-  void _onMultiScan(BarcodeCount count, BarcodeCountSession session) {
-    final List<Barcode> recognized = session.recognizedBarcodes;
-    if (recognized.isNotEmpty && mounted) {
-      bool hasNew = false;
-      int newCodeCount = 0;
-      int duplicateCodeCount = 0;
-      for (final Barcode b in recognized) {
-        final entry = _extractBarcodeResult(b);
-        if (entry.value.isNotEmpty) {
-          if (addUniqueScanEntry(_scannedEntries, entry)) {
-            logScanResult(
-              'Scandit',
-              entry,
-              mode: _modeLabel,
-              origin: 'live-camera',
-            );
-            hasNew = true;
-            newCodeCount++;
-          } else {
-            duplicateCodeCount++;
-          }
-        }
-      }
+    } else {
+      // Continuous Multi scan mode
+      final bool hasNew = addUniqueScanEntry(_scannedEntries, entry);
       _monitor.recordNativeEvent(
-        uniqueCount: newCodeCount,
-        duplicateCount: duplicateCodeCount,
+        uniqueCount: hasNew ? 1 : 0,
+        duplicateCount: hasNew ? 0 : 1,
         modeLabel: _modeLabel,
       );
       if (hasNew) {
         setState(() {});
       }
-    }
-  }
-
-  Future<void> _updateModeInContext() async {
-    if (_context == null) return;
-    await _context!.removeAllModes();
-    if (_scanMode == ScanMode.single && _barcodeCapture != null) {
-      _barcodeCapture!.isEnabled = true;
-      await _context!.addMode(_barcodeCapture!);
-    } else if (_scanMode == ScanMode.multiscan && _barcodeCount != null) {
-      _barcodeCount!.isEnabled = true;
-      await _context!.addMode(_barcodeCount!);
     }
   }
 
@@ -379,9 +283,6 @@ class _ScanditTabState extends State<ScanditTab>
     if (_captureListener != null) {
       _barcodeCapture?.removeListener(_captureListener!);
     }
-    if (_countListener != null) {
-      _barcodeCount?.removeListener(_countListener!);
-    }
     _context?.removeAllModes();
     super.dispose();
   }
@@ -396,6 +297,13 @@ class _ScanditTabState extends State<ScanditTab>
       _context!.setFrameSource(_camera);
       _camera!.switchToDesiredState(FrameSourceState.on);
     }
+  }
+
+  Future<void> _handleGalleryImage(String path) async {
+    showScannerMessage(
+      context,
+      'Gallery decoding operates via live camera engine. Use ZXing or Dynamsoft tab for image file scan.',
+    );
   }
 
   @override
@@ -437,28 +345,44 @@ class _ScanditTabState extends State<ScanditTab>
       );
     }
 
+    final double cutOutSize = MediaQuery.of(context).size.shortestSide * 0.5;
+
     return ScannerLiveScaffold(
-      preview: _scanMode == ScanMode.single
-          ? (_dataCaptureView ?? const SizedBox())
-          : (_barcodeCountView ?? const SizedBox()),
+      preview: _dataCaptureView ?? const SizedBox(),
       overlayChildren: <Widget>[
-        if (_scanMode == ScanMode.single)
+        if (_scanMode == ScanMode.single) ...<Widget>[
           Positioned.fill(
             child: Container(
               decoration: ShapeDecoration(
                 shape: CameraScannerOverlayBorder(
-                  cutOutSize: 250,
+                  cutOutSize: cutOutSize,
                   borderColor: Theme.of(context).primaryColor,
                   overlayColor: Colors.black45,
+                  borderRadius: 4,
+                  borderLength: 20,
+                  borderWidth: 8,
                 ),
               ),
             ),
           ),
+          Center(
+            child: SizedBox(
+              width: cutOutSize,
+              height: cutOutSize,
+              child: ClipRect(
+                child: ScannerScanLine(
+                  lineColor: Theme.of(context).primaryColor,
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
       scanMode: _scanMode,
       resultCount: _scannedEntries.length,
       onShowResults: _showMultiResults,
       onModeChanged: _changeMode,
+      onGalleryImageSelected: _handleGalleryImage,
     );
   }
 
@@ -469,7 +393,9 @@ class _ScanditTabState extends State<ScanditTab>
       _clearMultiResults();
     });
     _monitor.startSession(modeLabel: _modeLabel);
-    _updateModeInContext();
+    if (_camera != null && _tabController?.index == 2) {
+      _camera!.switchToDesiredState(FrameSourceState.on);
+    }
   }
 
   void _clearMultiResults() {
