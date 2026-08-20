@@ -345,7 +345,7 @@ class _ScanditTabState extends State<ScanditTab>
       );
     }
 
-    final double cutOutSize = MediaQuery.of(context).size.shortestSide * 0.5;
+    final double cutOutSize = MediaQuery.of(context).size.shortestSide * 0.75;
 
     return ScannerLiveScaffold(
       preview: _dataCaptureView ?? const SizedBox(),

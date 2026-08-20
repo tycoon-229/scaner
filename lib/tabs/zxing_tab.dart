@@ -560,7 +560,7 @@ class _ZxingTabState extends State<ZxingTab>
         scanMode: _scanMode,
         scanDelay: const Duration(milliseconds: 50),
         frameIntervalMs: _scanMode == ScanMode.single ? 500 : 150,
-        singleCropPercent: 0,
+        singleCropPercent: 0.75,
         onFrameCaptured: _handleFrame,
         onGalleryImageSelected: _handleGalleryImage,
         onControllerCreated: (CameraController? cam, Exception? err) {
@@ -1388,7 +1388,17 @@ class _ZxingTabState extends State<ZxingTab>
     if (_isUnpairedCompositeComponent(code)) return null;
 
     final String key = code.formatName ?? 'UNKNOWN';
-    final bool isGs1Format = _looksLikeGs1Format(key);
+    final bool isGs1Format =
+        _looksLikeGs1Format(key) ||
+        code.text!.contains('\u001d') ||
+        code.text!.contains('\u241d') ||
+        code.text!.contains('{GS}') ||
+        code.text!.contains('<GS>');
+
+    // Non-GS1 barcodes: return exact raw text directly without GS1 AI mangling
+    if (!isGs1Format) {
+      return ScanEntry(key, code.text!);
+    }
 
     final String rawText = Gs1DataBarTextNormalizer.normalize(
       text: code.text!,
@@ -1400,7 +1410,7 @@ class _ZxingTabState extends State<ZxingTab>
         Gs1ElementStringParser.tryFormatElementString(
           rawText,
           fallbackFormat: code.format,
-          requireGs1Marker: !isGs1Format,
+          requireGs1Marker: true,
         ) ??
         rawText;
 

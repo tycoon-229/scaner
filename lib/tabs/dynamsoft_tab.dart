@@ -225,6 +225,20 @@ class _DynamsoftTabState extends State<DynamsoftTab>
           result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
       if (barcodes.isEmpty) return false;
 
+      // 3b. Filter out barcodes that fall outside cropRect (viewfinder area)
+      if (cropRect != null) {
+        final Rect expandedCropRect = cropRect.inflate(30.0);
+        barcodes.removeWhere((BarcodeResultItem b) {
+          return !_isBarcodeInCropArea(
+            b,
+            expandedCropRect,
+            image.width,
+            image.height,
+          );
+        });
+        if (barcodes.isEmpty) return false;
+      }
+
       debugPrint(
         '[DynamsoftTab] === DECODED FRAME: ${barcodes.length} barcode item(s) ===',
       );
@@ -488,6 +502,30 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     }
   }
 
+  bool _isBarcodeInCropArea(
+    BarcodeResultItem barcode,
+    Rect cropRect,
+    int imageWidth,
+    int imageHeight,
+  ) {
+    final Quadrilateral loc = barcode.location;
+    if (loc.points.isEmpty) return true;
+
+    double sumX = 0;
+    double sumY = 0;
+    for (final p in loc.points) {
+      sumX += p.x;
+      sumY += p.y;
+    }
+    final double centerX = sumX / loc.points.length;
+    final double centerY = sumY / loc.points.length;
+
+    final Offset center = Offset(centerX, centerY);
+    final Offset rotatedCenter = Offset(centerY, imageWidth - centerX);
+
+    return cropRect.contains(center) || cropRect.contains(rotatedCenter);
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // Build
   // ──────────────────────────────────────────────────────────────────────────
@@ -608,22 +646,28 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   ScanEntry _entryForBarcode(BarcodeResultItem barcode) {
     final String formatName = barcode.formatString;
-    final String rawText = Gs1DataBarTextNormalizer.normalize(
+    final String normalizedText = Gs1DataBarTextNormalizer.normalize(
       text: barcode.text,
       formatName: formatName,
       format: Gs1DetectedFormat.fromName(formatName),
     );
-    final bool looksLikeGs1 = _looksLikeGs1(formatName, rawText);
+    final bool looksLikeGs1 = _looksLikeGs1(formatName, normalizedText);
+
+    String title = formatName.toUpperCase().replaceAll('_', '');
+
+    // Non-GS1 barcodes: return exact raw text directly without GS1 AI mangling
+    if (!looksLikeGs1) {
+      return ScanEntry(title, barcode.text);
+    }
 
     // Replace Dynamsoft composite pipe separator '|' with GS separator
-    final String cleanText = rawText.replaceAll('|', '\u001d');
+    final String cleanText = normalizedText.replaceAll('|', '\u001d');
 
     final List<Gs1Element> elements = Gs1ElementStringParser.parse(
       cleanText,
       fallbackFormat: Gs1DetectedFormat.fromName(formatName),
     );
 
-    String title = formatName.toUpperCase().replaceAll('_', '');
     if (elements.length > 1 || formatName.toUpperCase().contains('COMPOSITE')) {
       if (title.contains('CODE128') ||
           title.contains('GS1128') ||
@@ -637,12 +681,12 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     final String? gs1Text = Gs1ElementStringParser.tryFormatElementString(
       cleanText,
       fallbackFormat: Gs1DetectedFormat.fromName(formatName),
-      requireGs1Marker: !looksLikeGs1,
+      requireGs1Marker: false,
     );
 
     final String finalValue = elements.isNotEmpty
         ? Gs1ElementStringParser.formatElements(elements)
-        : (gs1Text ?? rawText);
+        : (gs1Text ?? normalizedText);
 
     return ScanEntry(title, finalValue);
   }
