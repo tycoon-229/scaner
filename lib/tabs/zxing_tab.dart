@@ -1388,12 +1388,7 @@ class _ZxingTabState extends State<ZxingTab>
     if (_isUnpairedCompositeComponent(code)) return null;
 
     final String key = code.formatName ?? 'UNKNOWN';
-    final bool isGs1Format =
-        _looksLikeGs1Format(key) ||
-        code.text!.contains('\u001d') ||
-        code.text!.contains('\u241d') ||
-        code.text!.contains('{GS}') ||
-        code.text!.contains('<GS>');
+    final bool isGs1Format = _looksLikeGs1Format(key, code.text!);
 
     // Non-GS1 barcodes: return exact raw text directly without GS1 AI mangling
     if (!isGs1Format) {
@@ -1406,13 +1401,14 @@ class _ZxingTabState extends State<ZxingTab>
       format: code.format,
     );
 
-    final String value =
-        Gs1ElementStringParser.tryFormatElementString(
-          rawText,
-          fallbackFormat: code.format,
-          requireGs1Marker: true,
-        ) ??
-        rawText;
+    final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+      rawText,
+      fallbackFormat: code.format,
+    );
+
+    final String value = elements.isNotEmpty
+        ? Gs1ElementStringParser.formatElements(elements)
+        : rawText;
 
     return ScanEntry(key, value);
   }
@@ -1647,9 +1643,27 @@ class _ZxingTabState extends State<ZxingTab>
     return buffer.toString();
   }
 
-  bool _looksLikeGs1Format(String formatName) {
+  bool _looksLikeGs1Format(String formatName, [String? text]) {
     final String normalized = formatName.toUpperCase();
-    return normalized.contains('GS1') || normalized.contains('COMPOSITE');
+    if (normalized.contains('GS1') ||
+        normalized.contains('COMPOSITE') ||
+        normalized.contains('DATABAR') ||
+        normalized.contains('RSS') ||
+        normalized.contains('LIMITED') ||
+        normalized.contains('EXPANDED')) {
+      return true;
+    }
+    if (text != null && text.isNotEmpty) {
+      final String trimmed = text.trim();
+      return trimmed.startsWith(RegExp(r'\][CcdQeE][1230]')) ||
+          trimmed.startsWith(RegExp(r'^\(\d{2,4}\)')) ||
+          RegExp(r'^01\d{14}').hasMatch(trimmed) ||
+          trimmed.contains('\u001d') ||
+          trimmed.contains('\u241d') ||
+          RegExp(r'\{GS\}|<GS>|\\u001d|\\x1d', caseSensitive: false)
+              .hasMatch(trimmed);
+    }
+    return false;
   }
 
   String _nativeCompositeResultText(Gs1CompositeNativeResult result) {

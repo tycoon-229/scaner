@@ -743,15 +743,24 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   bool _looksLikeGs1(String formatName, String text) {
     final String normalizedFormat = formatName.toUpperCase();
-    return normalizedFormat.contains('GS1') ||
+    if (normalizedFormat.contains('GS1') ||
         normalizedFormat.contains('COMPOSITE') ||
         normalizedFormat.contains('DATABAR') ||
-        text.contains('\u001d') ||
-        text.contains('\u241d') ||
+        normalizedFormat.contains('RSS') ||
+        normalizedFormat.contains('LIMITED') ||
+        normalizedFormat.contains('EXPANDED')) {
+      return true;
+    }
+    final String trimmed = text.trim();
+    return trimmed.startsWith(RegExp(r'\][CcdQeE][1230]')) ||
+        trimmed.startsWith(RegExp(r'^\(\d{2,4}\)')) ||
+        RegExp(r'^01\d{14}').hasMatch(trimmed) ||
+        trimmed.contains('\u001d') ||
+        trimmed.contains('\u241d') ||
         RegExp(
           r'\{GS\}|<GS>|\\u001d|\\x1d',
           caseSensitive: false,
-        ).hasMatch(text);
+        ).hasMatch(trimmed);
   }
 
   String get _modeLabel {
