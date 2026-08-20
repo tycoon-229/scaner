@@ -14,56 +14,7 @@ import 'package:poc_multi_scan/widgets/scanner_camera_preview.dart';
 import 'package:poc_multi_scan/widgets/scanner_live_scaffold.dart';
 import 'package:poc_multi_scan/widgets/scanner_message.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Top-level isolate helper (must be outside class for compute())
-// ─────────────────────────────────────────────────────────────────────────────
 
-/// Data passed into the isolate for YUV → NV21 conversion.
-class _ConvertParams {
-  const _ConvertParams({
-    required this.yBytes,
-    required this.uBytes,
-    required this.vBytes,
-    required this.yRowStride,
-    required this.uvPixelStride,
-    required this.width,
-    required this.height,
-  });
-
-  final Uint8List yBytes;
-  final Uint8List uBytes;
-  final Uint8List vBytes;
-  final int yRowStride;
-  final int uvPixelStride;
-  final int width;
-  final int height;
-}
-
-/// Runs in a background isolate — no Flutter UI code allowed here.
-Uint8List _yuv420ToNv21Isolate(_ConvertParams p) {
-  final int ySize = p.width * p.height;
-  final Uint8List nv21 = Uint8List(ySize + ySize ~/ 2);
-
-  // Copy Y plane row by row (handles non-contiguous strides)
-  for (int row = 0; row < p.height; row++) {
-    nv21.setRange(
-      row * p.width,
-      row * p.width + p.width,
-      p.yBytes,
-      row * p.yRowStride,
-    );
-  }
-
-  // Interleave V, U → NV21
-  int offset = ySize;
-  for (int i = 0; i < p.uBytes.length; i += p.uvPixelStride) {
-    if (offset + 1 >= nv21.length) break;
-    nv21[offset++] = p.vBytes[i];
-    nv21[offset++] = p.uBytes[i];
-  }
-
-  return nv21;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DynamsoftTab
@@ -135,21 +86,20 @@ class _DynamsoftTabState extends State<DynamsoftTab>
                 templateName,
               );
           if (settings?.barcodeSettings != null) {
-            settings!.barcodeSettings!.barcodeFormatIds = EnumBarcodeFormat.all;
+            settings!.barcodeSettings!.barcodeFormatIds =
+                EnumBarcodeFormat.all & ~EnumBarcodeFormat.pharmacode;
             settings.barcodeSettings!.expectedBarcodesCount = 0;
             settings.barcodeSettings!.localizationModes =
                 <EnumLocalizationMode>[
                   EnumLocalizationMode.connectedBlocks,
-                  EnumLocalizationMode.lines,
-                  EnumLocalizationMode.statistics,
                   EnumLocalizationMode.scanDirectly,
+                  EnumLocalizationMode.statistics,
                 ];
             settings.barcodeSettings!.deblurModes = <EnumDeblurMode>[
               EnumDeblurMode.directBinarization,
               EnumDeblurMode.thresholdBinarization,
-              EnumDeblurMode.deepAnalysis,
             ];
-            settings.barcodeSettings!.scaleDownThreshold = 2048;
+            settings.barcodeSettings!.scaleDownThreshold = 1024;
             await CaptureVisionRouter.instance.updateSettings(
               templateName,
               settings,
@@ -223,6 +173,13 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       // 3. Extract barcodes
       final List<BarcodeResultItem> barcodes =
           result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
+      if (barcodes.isEmpty) return false;
+
+      // Filter out Pharmacode false positives
+      barcodes.removeWhere((BarcodeResultItem b) {
+        final String formatUpper = b.formatString.toUpperCase();
+        return formatUpper.contains('PHARMACODE');
+      });
       if (barcodes.isEmpty) return false;
 
       // 3b. Filter out barcodes that fall outside cropRect (viewfinder area)
@@ -450,6 +407,37 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     }
   }
 
+  static Uint8List _yuv420ToNv21Direct(CameraImage image) {
+    final int width = image.width;
+    final int height = image.height;
+    final int ySize = width * height;
+    final Uint8List nv21 = Uint8List(ySize + ySize ~/ 2);
+
+    final Uint8List yBytes = image.planes[0].bytes;
+    final Uint8List uBytes = image.planes[1].bytes;
+    final Uint8List vBytes = image.planes[2].bytes;
+    final int yRowStride = image.planes[0].bytesPerRow;
+    final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
+
+    for (int row = 0; row < height; row++) {
+      nv21.setRange(
+        row * width,
+        row * width + width,
+        yBytes,
+        row * yRowStride,
+      );
+    }
+
+    int offset = ySize;
+    for (int i = 0; i < uBytes.length; i += uvPixelStride) {
+      if (offset + 1 >= nv21.length) break;
+      nv21[offset++] = vBytes[i];
+      nv21[offset++] = uBytes[i];
+    }
+
+    return nv21;
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // CameraImage → Dynamsoft ImageData
   // ──────────────────────────────────────────────────────────────────────────
@@ -458,19 +446,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     try {
       switch (image.format.group) {
         case ImageFormatGroup.yuv420:
-          // Offload YUV → NV21 conversion to a background isolate
-          final Uint8List nv21 = await compute(
-            _yuv420ToNv21Isolate,
-            _ConvertParams(
-              yBytes: image.planes[0].bytes,
-              uBytes: image.planes[1].bytes,
-              vBytes: image.planes[2].bytes,
-              yRowStride: image.planes[0].bytesPerRow,
-              uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
-              width: image.width,
-              height: image.height,
-            ),
-          );
+          final Uint8List nv21 = _yuv420ToNv21Direct(image);
           return ImageData(
             bytes: nv21,
             width: image.width,
@@ -565,9 +541,9 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         tabIndex: 1,
         controller: _scannerController,
         scanMode: _scanMode,
-        resolution: ResolutionPreset.high,
-        scanDelay: const Duration(milliseconds: 300),
-        frameIntervalMs: 300,
+        resolution: ResolutionPreset.medium,
+        scanDelay: const Duration(milliseconds: 250),
+        frameIntervalMs: 250,
         onFrameCaptured: _handleFrame,
         onGalleryImageSelected: _handleGalleryImage,
         onControllerCreated: (CameraController? cam, Exception? err) {
