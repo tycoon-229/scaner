@@ -108,8 +108,10 @@ class _ScanditTabState extends State<ScanditTab>
     if (_tabController == null) return;
     final isCurrentTab = _tabController!.index == 2;
     if (isCurrentTab && _singleResult == null && !_showMultiResultScreen) {
+      _barcodeCapture?.isEnabled = true;
       _camera?.switchToDesiredState(FrameSourceState.on);
     } else {
+      _barcodeCapture?.isEnabled = false;
       _camera?.switchToDesiredState(FrameSourceState.off);
     }
   }
@@ -146,6 +148,16 @@ class _ScanditTabState extends State<ScanditTab>
       }
       captureSettings.enableSymbologiesForCompositeTypes(compositeTypes);
       captureSettings.enabledCompositeTypes = compositeTypes;
+
+      // Enable all digit lengths (4 to 40) for Interleaved 2 of 5 (ITF) barcodes
+      final itfSettings =
+          captureSettings.settingsForSymbology(Symbology.interleavedTwoOfFive);
+      itfSettings.activeSymbolCounts = {for (int i = 4; i <= 40; i++) i};
+
+      // Enable short lengths (3 to 40) for Codabar (NW-7) barcodes (e.g. A01A [4 chars], B001C [5 chars])
+      final codabarSettings =
+          captureSettings.settingsForSymbology(Symbology.codabar);
+      codabarSettings.activeSymbolCounts = {for (int i = 3; i <= 40; i++) i};
 
       // Set code duplicate filter to 800ms for smooth continuous multi-scanning
       captureSettings.codeDuplicateFilter = const Duration(milliseconds: 800);
@@ -227,7 +239,7 @@ class _ScanditTabState extends State<ScanditTab>
   }
 
   void _onScanCaptured(BarcodeCapture capture, BarcodeCaptureSession session) {
-    if (!mounted) return;
+    if (!mounted || _showMultiResultScreen) return;
 
     final Barcode? b = session.newlyRecognizedBarcode;
     if (b == null) return;
@@ -237,6 +249,8 @@ class _ScanditTabState extends State<ScanditTab>
 
     if (_scanMode == ScanMode.single) {
       if (_singleResult == null) {
+        _barcodeCapture?.isEnabled = false;
+        _camera?.switchToDesiredState(FrameSourceState.off);
         _monitor.recordNativeEvent(
           uniqueCount: 1,
           duplicateCount: 0,
@@ -245,7 +259,6 @@ class _ScanditTabState extends State<ScanditTab>
         setState(() {
           _singleResult = entry;
         });
-        _camera?.switchToDesiredState(FrameSourceState.off);
       }
     } else {
       // Continuous Multi scan mode
@@ -268,9 +281,11 @@ class _ScanditTabState extends State<ScanditTab>
         isTab3Active &&
         _singleResult == null &&
         !_showMultiResultScreen) {
+      _barcodeCapture?.isEnabled = true;
       _camera?.switchToDesiredState(FrameSourceState.on);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      _barcodeCapture?.isEnabled = false;
       _camera?.switchToDesiredState(FrameSourceState.off);
     }
   }
@@ -279,6 +294,7 @@ class _ScanditTabState extends State<ScanditTab>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabController?.removeListener(_onTabChanged);
+    _barcodeCapture?.isEnabled = false;
     _camera?.switchToDesiredState(FrameSourceState.off);
     if (_captureListener != null) {
       _barcodeCapture?.removeListener(_captureListener!);
@@ -293,8 +309,8 @@ class _ScanditTabState extends State<ScanditTab>
       _clearMultiResults();
     });
     _monitor.startSession(modeLabel: _modeLabel);
-    if (_camera != null && _context != null) {
-      _context!.setFrameSource(_camera);
+    _barcodeCapture?.isEnabled = true;
+    if (_camera != null) {
       _camera!.switchToDesiredState(FrameSourceState.on);
     }
   }
@@ -393,6 +409,7 @@ class _ScanditTabState extends State<ScanditTab>
       _clearMultiResults();
     });
     _monitor.startSession(modeLabel: _modeLabel);
+    _barcodeCapture?.isEnabled = true;
     if (_camera != null && _tabController?.index == 2) {
       _camera!.switchToDesiredState(FrameSourceState.on);
     }
@@ -404,6 +421,8 @@ class _ScanditTabState extends State<ScanditTab>
   }
 
   void _showMultiResults() {
+    _barcodeCapture?.isEnabled = false;
+    _camera?.switchToDesiredState(FrameSourceState.off);
     setState(() => _showMultiResultScreen = true);
   }
 

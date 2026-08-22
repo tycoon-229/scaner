@@ -321,5 +321,18 @@ void main() {
       final String formatted = Gs1ElementStringParser.formatElements(elements);
       expect(formatted, startsWith('(01)'));
     });
+
+    test('parses GS1-128 payload ending with AI prefix without truncating trailing characters', () {
+      final List<Gs1Element> elements = Gs1ElementStringParser.parse(
+        '010498708170022610',
+      );
+
+      expect(elements.map((e) => e.ai), <String>['01', '10']);
+      expect(elements.first.value, '04987081700226');
+      expect(
+        Gs1ElementStringParser.formatElements(elements),
+        '(01)04987081700226(10)',
+      );
+    });
   });
 }

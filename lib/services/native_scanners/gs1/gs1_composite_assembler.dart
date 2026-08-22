@@ -486,7 +486,7 @@ class Gs1ElementStringParser {
 
       index += definition.ai.length;
       final int remaining = input.length - index;
-      if (remaining <= 0) break;
+      if (remaining < 0) break;
 
       final String value;
       if (definition.fixedLength != null) {

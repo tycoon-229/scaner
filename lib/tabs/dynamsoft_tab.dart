@@ -297,7 +297,6 @@ class _DynamsoftTabState extends State<DynamsoftTab>
         int newCodeCount = 0;
         int duplicateCodeCount = 0;
         for (final BarcodeResultItem b in barcodes) {
-          if (_isLikelyPartialCompositeCarrier(b)) continue;
           final ScanEntry e = _entryForBarcode(b);
           if (addUniqueScanEntry(_scannedEntries, e)) {
             logScanResult(
@@ -586,6 +585,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   }
 
   void _showMultiResults() {
+    _scannerController.pauseStream();
     setState(() => _showMultiResultScreen = true);
   }
 

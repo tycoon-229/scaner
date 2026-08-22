@@ -300,7 +300,12 @@ class _ZxingTabState extends State<ZxingTab>
               return true;
             }
 
-            return false;
+            final DateTime now = DateTime.now();
+            final DateTime firstSeen = _pendingCompositeCarrierAt ?? now;
+            if (now.difference(firstSeen) < _compositeCarrierHoldDuration) {
+              return false;
+            }
+            _clearPendingCompositeCarrier();
           } else {
             _clearPendingCompositeCarrier();
           }
@@ -1717,6 +1722,7 @@ class _ZxingTabState extends State<ZxingTab>
   }
 
   void _showMultiResults() {
+    _scannerController.pauseStream();
     setState(() => _showMultiResultScreen = true);
   }
 
