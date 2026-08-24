@@ -75,11 +75,26 @@ class _DynamsoftTabState extends State<DynamsoftTab>
     try {
       await LicenseManager.initLicense(LicenseKeys.dynamsoft);
       debugPrint('[DynamsoftTab] License initialized successfully.');
-      for (final String templateName in <String>[
-        EnumPresetTemplate.readBarcodesReadRateFirst,
-        EnumPresetTemplate.readBarcodes,
-        EnumPresetTemplate.defaultTemplate,
-      ]) {
+
+      // Retrieve valid template names from native engine dynamically
+      List<String> availableTemplates = <String>[];
+      try {
+        availableTemplates = await CaptureVisionRouter.instance.getTemplateNames();
+        debugPrint('[DynamsoftTab] Available template names in CVR: $availableTemplates');
+      } catch (e) {
+        debugPrint('[DynamsoftTab] Could not get template names: $e');
+      }
+
+      final List<String> templatesToUpdate = availableTemplates.isNotEmpty
+          ? availableTemplates
+          : <String>[
+              EnumPresetTemplate.readBarcodesReadRateFirst,
+              EnumPresetTemplate.readBarcodes,
+              EnumPresetTemplate.defaultTemplate,
+              '',
+            ];
+
+      for (final String templateName in templatesToUpdate) {
         try {
           final SimplifiedCaptureVisionSettings? settings =
               await CaptureVisionRouter.instance.getSimplifiedSettings(
@@ -91,13 +106,16 @@ class _DynamsoftTabState extends State<DynamsoftTab>
             settings.barcodeSettings!.expectedBarcodesCount = 0;
             settings.barcodeSettings!.localizationModes =
                 <EnumLocalizationMode>[
+                  EnumLocalizationMode.lines,
                   EnumLocalizationMode.connectedBlocks,
                   EnumLocalizationMode.scanDirectly,
                   EnumLocalizationMode.statistics,
+                  EnumLocalizationMode.oneDFastScan,
                 ];
             settings.barcodeSettings!.deblurModes = <EnumDeblurMode>[
               EnumDeblurMode.directBinarization,
               EnumDeblurMode.thresholdBinarization,
+              EnumDeblurMode.basedOnLocBin,
             ];
             settings.barcodeSettings!.scaleDownThreshold = 1024;
             await CaptureVisionRouter.instance.updateSettings(
@@ -105,7 +123,7 @@ class _DynamsoftTabState extends State<DynamsoftTab>
               settings,
             );
             debugPrint(
-              '[DynamsoftTab] Updated template "$templateName": formats=${settings.barcodeSettings!.barcodeFormatIds}, count=${settings.barcodeSettings!.expectedBarcodesCount}',
+              '[DynamsoftTab] Updated template "$templateName": formats=${settings.barcodeSettings!.barcodeFormatIds}',
             );
           }
         } catch (e) {
@@ -173,7 +191,15 @@ class _DynamsoftTabState extends State<DynamsoftTab>
       // 3. Extract barcodes
       final List<BarcodeResultItem> barcodes =
           result.decodedBarcodesResult?.items ?? <BarcodeResultItem>[];
-      if (barcodes.isEmpty) return false;
+      
+      if (barcodes.isNotEmpty) {
+        debugPrint(
+          '[DynamsoftTab] 🔍 Raw frame decoded ${barcodes.length} item(s): '
+          '${barcodes.map((b) => "${b.formatString}: '${b.text}'").join(", ")}',
+        );
+      } else {
+        return false;
+      }
 
       // Filter out Pharmacode false positives
       barcodes.removeWhere((BarcodeResultItem b) {
@@ -591,10 +617,16 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
   Gs1DetectedCode _detectedCodeFromDynamsoft(BarcodeResultItem item) {
     final int? format = Gs1DetectedFormat.fromName(item.formatString);
+    final String rawText = _extractCodabarText(item);
     final String text = Gs1DataBarTextNormalizer.normalize(
-      text: item.text,
+      text: rawText,
       formatName: item.formatString,
       format: format,
+    );
+    debugPrint(
+      'format=${item.formatString}, text="${item.text}", '
+          'length=${item.text.length}, '
+          'codes=${item.text.codeUnits}',
     );
     final Quadrilateral loc = item.location;
     Gs1DetectedPosition? pos;
@@ -633,7 +665,8 @@ class _DynamsoftTabState extends State<DynamsoftTab>
 
     // Non-GS1 barcodes: return exact raw text directly without GS1 AI mangling
     if (!looksLikeGs1) {
-      return ScanEntry(title, barcode.text);
+      final String rawText = _extractCodabarText(barcode);
+      return ScanEntry(title, rawText);
     }
 
     // Replace Dynamsoft composite pipe separator '|' with GS separator
@@ -739,6 +772,71 @@ class _DynamsoftTabState extends State<DynamsoftTab>
   void _clearPendingLinearCarrier() {
     _pendingLinearCarrier = null;
     _pendingLinearCarrierAt = null;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Codabar / NW7 start/stop guard-character extraction
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Extracts the full Codabar/NW7 text including start/stop guard characters.
+  ///
+  /// **Root Cause & Technical Finding**:
+  /// In Dynamsoft Capture Vision v11 (native C++ DBR engine), `BarcodeResultItem.text`
+  /// intentionally strips Codabar start/stop characters to return payload-only data.
+  /// No JSON template parameter exists in DCV v11 to alter this text behavior.
+  ///
+  /// Instead, Dynamsoft provides start/stop guard bytes natively in
+  /// [BarcodeResultItem.oneDCodeDetails.startCharsBytes] and [stopCharsBytes].
+  ///
+  /// This method reads those native bytes and attaches them to [item.text].
+  String _extractCodabarText(BarcodeResultItem item) {
+    final String formatUpper = item.formatString.toUpperCase();
+    final bool isCodabar = formatUpper.contains('CODABAR') ||
+        formatUpper.contains('NW_7') ||
+        formatUpper.contains('NW7') ||
+        formatUpper.contains('NW-7');
+
+    if (!isCodabar) {
+      return item.text;
+    }
+
+    final String payloadText = item.text;
+    final OneDCodeDetails? details = item.oneDCodeDetails;
+
+    String startChar = '';
+    if (details?.startCharsBytes != null && details!.startCharsBytes!.isNotEmpty) {
+      startChar = String.fromCharCodes(details.startCharsBytes!);
+    }
+
+    String stopChar = '';
+    if (details?.stopCharsBytes != null && details!.stopCharsBytes!.isNotEmpty) {
+      stopChar = String.fromCharCodes(details.stopCharsBytes!);
+    }
+
+    // Check if payload string somehow already contains guards
+    const Set<String> guardSet = {'A', 'B', 'C', 'D', 'T', 'N', 'E', '*'};
+    final bool hasStart = payloadText.isNotEmpty && guardSet.contains(payloadText[0].toUpperCase());
+    final bool hasStop = payloadText.length > 1 && guardSet.contains(payloadText[payloadText.length - 1].toUpperCase());
+
+    final String prefix = (hasStart || startChar.isEmpty) ? '' : startChar;
+    final String suffix = (hasStop || stopChar.isEmpty) ? '' : stopChar;
+
+    // Fallback: If native bytes were not supplied, prepend/append standard 'A' guard
+    if (!hasStart && prefix.isEmpty && startChar.isEmpty) {
+      final String fallbackPrefix = hasStart ? '' : 'A';
+      final String fallbackSuffix = hasStop ? '' : 'A';
+      final String result = '$fallbackPrefix$payloadText$fallbackSuffix';
+      debugPrint(
+        '[DynamsoftTab] Codabar text extracted (fallback guard): "$payloadText" → "$result"',
+      );
+      return result;
+    }
+
+    final String result = '$prefix$payloadText$suffix';
+    debugPrint(
+      '[DynamsoftTab] Codabar text extracted via oneDCodeDetails: start="$startChar", stop="$stopChar", payload="$payloadText" → "$result"',
+    );
+    return result;
   }
 
   bool _looksLikeGs1(String formatName, String text) {
